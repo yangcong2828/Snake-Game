@@ -61,3 +61,45 @@ button:hover {
     font-size: 14px;
     color: #555;
 }
+
+/* 虚拟方向键 */
+.dpad {
+    display: grid;
+    grid-template-areas:
+        ". up ."
+        "left . right"
+        ". down .";
+    grid-template-columns: 60px 60px 60px;
+    grid-template-rows: 60px 60px 60px;
+    gap: 6px;
+    margin: 16px auto 0;
+    width: fit-content;
+}
+
+.dpad-btn {
+    width: 60px;
+    height: 60px;
+    font-size: 22px;
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    padding: 0;
+    margin: 0;
+}
+
+.dpad-btn:active {
+    background-color: #388e3c;
+    transform: scale(0.93);
+}
+
+.dpad-btn[data-dir="up"]    { grid-area: up; }
+.dpad-btn[data-dir="left"]  { grid-area: left; }
+.dpad-btn[data-dir="right"] { grid-area: right; }
+.dpad-btn[data-dir="down"]  { grid-area: down; }

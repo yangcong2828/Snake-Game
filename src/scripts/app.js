@@ -118,12 +118,41 @@ function togglePause() {
   isPaused = !isPaused; // 切换暂停状态
 }
 
+// 虚拟方向键控制
+function handleVirtualButton(dir) {
+  switch (dir) {
+    case "up":
+      if (direction.y === 0) direction = { x: 0, y: -1 };
+      break;
+    case "down":
+      if (direction.y === 0) direction = { x: 0, y: 1 };
+      break;
+    case "left":
+      if (direction.x === 0) direction = { x: -1, y: 0 };
+      break;
+    case "right":
+      if (direction.x === 0) direction = { x: 1, y: 0 };
+      break;
+  }
+}
+
 // 初始化游戏
 function startGame() {
   createBoard();
   updateBoard();
   document.addEventListener("keydown", handleKeydown);
   gameInterval = setInterval(moveSnake, 200);
+
+  // 绑定虚拟方向键
+  document.querySelectorAll(".dpad-btn").forEach(btn => {
+    btn.addEventListener("touchstart", (e) => {
+      e.preventDefault();
+      handleVirtualButton(btn.dataset.dir);
+    });
+    btn.addEventListener("click", () => {
+      handleVirtualButton(btn.dataset.dir);
+    });
+  });
 }
 
 startGame();
