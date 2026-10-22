@@ -4,7 +4,8 @@
   "description": "A polished snake game built with vanilla HTML, CSS and JavaScript.",
   "main": "index.html",
   "scripts": {
-    "start": "live-server ."
+    "start": "live-server .",
+    "build": "node scripts/build.mjs"
   },
   "keywords": [
     "snake",

@@ -60,6 +60,11 @@
           </details>
 
           <button class="btn btn-primary" id="startBtn" data-action="start">开始游戏</button>
+          <div class="link-row">
+            <button class="link-btn" data-action="send-report">发战报</button>
+            <span aria-hidden="true">·</span>
+            <button class="link-btn" data-action="receive-report">收战报</button>
+          </div>
         </section>
 
         <!-- 暂停 -->
@@ -79,7 +84,19 @@
           <p class="final-score" id="overScore">0</p>
           <p class="over-gap" id="overGap"></p>
           <button class="btn btn-primary" data-action="restart">再来一局</button>
-          <button class="btn btn-ghost" data-action="menu">换人 / 玩法</button>
+          <div class="btn-row">
+            <button class="btn btn-ghost" data-action="send-report">发战报</button>
+            <button class="btn btn-ghost" data-action="menu">换人 / 玩法</button>
+          </div>
+        </section>
+
+        <!-- 战报：经微信在两部手机之间同步纪录 -->
+        <section class="panel" data-panel="sync" aria-label="战报">
+          <h2 class="panel-title" id="syncTitle">收战报</h2>
+          <p class="sync-hint" id="syncHint"></p>
+          <textarea class="sync-text" id="syncText" rows="5" spellcheck="false"></textarea>
+          <button class="btn btn-primary" id="syncBtn" data-action="sync-confirm">同步</button>
+          <button class="btn btn-ghost" data-action="sync-back">返回</button>
         </section>
       </div>
 

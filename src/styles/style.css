@@ -249,7 +249,8 @@ canvas {
 
 .overlay[data-screen="menu"] [data-panel="menu"],
 .overlay[data-screen="paused"] [data-panel="paused"],
-.overlay[data-screen="over"] [data-panel="over"] {
+.overlay[data-screen="over"] [data-panel="over"],
+.overlay[data-screen="sync"] [data-panel="sync"] {
     display: flex;
 }
 
@@ -540,6 +541,59 @@ button {
     gap: 10px;
 }
 
+/* ---------- 战报 ---------- */
+.link-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin-top: -4px;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.link-btn {
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.link-btn:hover {
+    color: var(--text);
+}
+
+.link-btn:focus-visible {
+    outline: 2px solid var(--accent);
+}
+
+.sync-hint {
+    margin: -4px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.sync-text {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: 13px/1.5 var(--font);
+    resize: none;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+.sync-text:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
 /* ---------- 结算 ---------- */
 .badge {
     align-self: center;
@@ -635,7 +689,9 @@ button {
 .app[data-screen="menu"] #pauseBtn,
 .app[data-screen="menu"] .toolbar [data-action="restart"],
 .app[data-screen="over"] #pauseBtn,
-.app[data-screen="over"] .toolbar [data-action="restart"] {
+.app[data-screen="over"] .toolbar [data-action="restart"],
+.app[data-screen="sync"] #pauseBtn,
+.app[data-screen="sync"] .toolbar [data-action="restart"] {
     display: none;
 }
 

@@ -476,6 +476,156 @@
     return '';
   }
 
+  // ================= 战报（微信同步） =================
+  // 不用服务器：把两人的纪录编成一段战报码，经微信发给对方，对方粘贴后逐条取较高分合并。
+  // 合并只增不减，重复粘贴或互相发来发去都不会出错。
+  const MODE_CODES = { classic: 'c', wrap: 'w', maze: 'm' };
+  const DIFF_CODES = { easy: 'e', normal: 'n', hard: 'h' };
+  const invert = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [v, k]));
+  const MODE_OF = invert(MODE_CODES);
+  const DIFF_OF = invert(DIFF_CODES);
+
+  // 防止微信里复制漏了几个字导致导入错分
+  function checksum(str) {
+    let h = 7;
+    for (const ch of str) h = (h * 31 + ch.charCodeAt(0)) % 1679616;
+    return h.toString(36).padStart(4, '0');
+  }
+
+  function encodeRecords() {
+    const parts = [];
+    PLAYERS.forEach((p, i) => {
+      Object.keys(MODE_CODES).forEach((m) => Object.keys(DIFF_CODES).forEach((d) => {
+        const v = store.best[`${p.id}.${m}.${d}`];
+        if (v > 0) parts.push(`${i}${MODE_CODES[m]}${DIFF_CODES[d]}${v.toString(36)}`);
+      }));
+    });
+    const body = parts.join('_');
+    return `SNK1.${body}.${checksum(body)}`;
+  }
+
+  function decodeRecords(text) {
+    const match = /SNK1\.([0-9a-z_]*)\.([0-9a-z]{4})/.exec(text || '');
+    if (!match || checksum(match[1]) !== match[2]) return null;
+    const records = [];
+    for (const part of match[1].split('_').filter(Boolean)) {
+      const m = /^(\d)([a-z])([a-z])([0-9a-z]+)$/.exec(part);
+      if (!m || !PLAYERS[m[1]] || !MODE_OF[m[2]] || !DIFF_OF[m[3]]) return null;
+      records.push({ key: `${PLAYERS[m[1]].id}.${MODE_OF[m[2]]}.${DIFF_OF[m[3]]}`, score: parseInt(m[4], 36) });
+    }
+    return records;
+  }
+
+  function importRecords(text) {
+    const records = decodeRecords(text);
+    if (!records) return false;
+    let changed = 0;
+    records.forEach(({ key: k, score }) => {
+      if (score > (store.best[k] || 0)) {
+        store.best[k] = score;
+        changed++;
+      }
+    });
+    if (changed) saveStore();
+    updateHud();
+    toast(changed ? `已同步 ${changed} 条新纪录` : '比分已经是最新的');
+    Sound.play(changed ? 'bonus' : 'click');
+    return true;
+  }
+
+  function reportText() {
+    const me = PLAYER_BY_ID[settings.player];
+    const combo = $('#comboLabel').textContent;
+    const scores = PLAYERS.map((p) => `${p.name} ${getBest(p.id)}`).join(' · ');
+    const lines = [];
+    if (state.phase === 'over' && state.score > 0) {
+      const gap = $('#overGap').textContent;
+      lines.push(`🐍 ${me.name}刚在「${combo}」拿下 ${state.score} 分${gap ? `，${gap}` : ''}`);
+    }
+    lines.push(`📊 「${combo}」比分：${scores}`);
+    lines.push('复制这整段话，打开贪吃蛇点「收战报」就能同步');
+    lines.push(encodeRecords());
+    return lines.join('\n');
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // file:// 或旧浏览器没有剪贴板接口时，退回 execCommand
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
+    ta.remove();
+    return ok;
+  }
+
+  let syncReturn = 'menu';
+  function openSync(mode, text = '') {
+    syncReturn = overlay.dataset.screen || 'menu';
+    const rival = PLAYERS.find((p) => p.id !== settings.player);
+    const panel = $('[data-panel="sync"]');
+    panel.dataset.mode = mode;
+    $('#syncTitle').textContent = mode === 'send' ? '发战报' : '收战报';
+    $('#syncHint').textContent = mode === 'send'
+      ? `长按全选复制，发到微信给${rival ? rival.name : 'TA'}`
+      : '把微信里收到的战报整段粘贴到这里';
+    $('#syncBtn').textContent = mode === 'send' ? '复制' : '同步';
+    const area = $('#syncText');
+    area.value = text;
+    area.readOnly = mode === 'send';
+    area.placeholder = mode === 'send' ? '' : '🐍 …… SNK1.……';
+    showScreen('sync');
+    requestAnimationFrame(() => {
+      area.focus({ preventScroll: true });
+      if (mode === 'send') area.select();
+    });
+  }
+
+  async function sendReport() {
+    const text = reportText();
+    const rival = PLAYERS.find((p) => p.id !== settings.player);
+    if (await copyText(text)) {
+      toast(`战报已复制，去微信发给${rival ? rival.name : 'TA'}`);
+      Sound.play('click');
+    } else {
+      openSync('send', text);
+    }
+  }
+
+  async function receiveReport() {
+    // 先试着直接读剪贴板，读不到再让人手动粘贴
+    try {
+      const text = await navigator.clipboard.readText();
+      if (decodeRecords(text) && importRecords(text)) return;
+    } catch {
+      // 没有剪贴板权限，走手动粘贴
+    }
+    openSync('receive');
+  }
+
+  async function syncConfirm() {
+    const area = $('#syncText');
+    if ($('[data-panel="sync"]').dataset.mode === 'send') {
+      area.select();
+      if (await copyText(area.value)) toast('已复制');
+      return;
+    }
+    if (importRecords(area.value)) showScreen(syncReturn);
+    else toast('没认出战报，请复制完整的一段话');
+  }
+
   // ================= 流程控制 =================
   function clearEffects() {
     particles.length = 0;
@@ -1130,8 +1280,14 @@
       return;
     }
 
+    // 战报面板里只认 Esc 返回，其余快捷键都让路（包括在文本框里打字）
+    if (overlay.dataset.screen === 'sync') {
+      if (e.code === 'Escape') showScreen(syncReturn);
+      return;
+    }
+
     // 焦点在按钮/单选框上时，Enter/空格交给浏览器原生处理
-    const onControl = e.target instanceof HTMLElement && e.target.matches('button, input');
+    const onControl = e.target instanceof HTMLElement && e.target.matches('button, input, summary');
     const confirmKey = e.code === 'Enter' || e.code === 'Space';
     if (confirmKey && onControl) return;
 
@@ -1195,6 +1351,10 @@
     menu: toMenu,
     'toggle-pause': togglePause,
     'toggle-sound': toggleSound,
+    'send-report': sendReport,
+    'receive-report': receiveReport,
+    'sync-confirm': syncConfirm,
+    'sync-back': () => showScreen(syncReturn),
   };
 
   document.addEventListener('click', (e) => {
