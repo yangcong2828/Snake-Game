@@ -31,6 +31,7 @@
   };
 
   const THEMES = window.SnakeThemes;
+  const DEFAULT_THEME = 'neon';
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ================= DOM =================
@@ -69,10 +70,13 @@
     }
   }
 
+  // 链接可直接指定主题，例如 ?theme=sweet；否则沿用上次的选择
+  const urlTheme = new URLSearchParams(window.location.search).get('theme');
+
   const settings = {
     difficulty: DIFFICULTIES[store.settings.difficulty] ? store.settings.difficulty : 'normal',
     mode: MODE_HINTS[store.settings.mode] ? store.settings.mode : 'classic',
-    theme: THEMES.byId[store.settings.theme] ? store.settings.theme : 'neon',
+    theme: [urlTheme, store.settings.theme].find((id) => THEMES.byId[id]) || DEFAULT_THEME,
     muted: !!store.settings.muted,
   };
 
