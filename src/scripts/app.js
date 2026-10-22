@@ -37,6 +37,7 @@
   const $ = (sel) => document.querySelector(sel);
   const canvas = $('#board');
   const ctx = canvas.getContext('2d');
+  const app = $('#app');
   const overlay = $('#overlay');
   const toastEl = $('#toast');
   const pauseBtn = $('#pauseBtn');
@@ -45,7 +46,6 @@
     score: $('#hudScore'),
     best: $('#hudBest'),
     level: $('#hudLevel'),
-    length: $('#hudLength'),
   };
 
   // ================= 本地存储 =================
@@ -411,7 +411,7 @@
     if (!reducedMotion) shake = theme().shake;
     flash = 1;
     burst(state.snake[0], 'death', 28);
-    ring(state.snake[0], 'rgba(255, 170, 60, 0.9)', 4);
+    ring(state.snake[0], theme().colors.deathRing || 'rgba(255, 170, 60, 0.9)', 4);
     Sound.play('die');
     finishRound(false);
   }
@@ -434,7 +434,12 @@
     }
     $('#overTitle').textContent = won ? theme().text.win : theme().text.over;
     $('#overRecord').hidden = !isRecord;
-    $('#overScore').textContent = state.score;
+    $('#overScore').textContent = 0;
+    // 差距感：没破纪录时告诉你还差多少，破了就告诉你超出多少
+    const gap = $('#overGap');
+    if (isRecord && best > 0) gap.innerHTML = `比旧纪录多 <strong>${state.score - best}</strong> 分`;
+    else if (!isRecord && best > 0) gap.innerHTML = `距最高分还差 <strong>${best - state.score}</strong> 分`;
+    else gap.textContent = '';
     $('#overBest').textContent = Math.max(best, state.score);
     $('#overLength').textContent = state.snake.length;
     $('#overLevel').textContent = state.level;
@@ -443,7 +448,9 @@
 
     const token = ++roundToken;
     setTimeout(() => {
-      if (token === roundToken) showScreen('over');
+      if (token !== roundToken) return;
+      showScreen('over');
+      countUp($('#overScore'), state.score, token);
     }, won ? 400 : 800);
   }
 
@@ -493,8 +500,9 @@
     else if (state.phase === 'paused') resume();
   }
 
+  // 游戏中重开需要确认两次，键盘与工具栏按钮一致
   let restartArmedAt = -Infinity;
-  function requestRestart() {
+  function requestRestart(fromButton) {
     if (!isActive()) {
       startGame();
       return;
@@ -505,7 +513,7 @@
       startGame();
     } else {
       restartArmedAt = now;
-      toast('再按一次 R 重新开始');
+      toast(fromButton ? '再点一次重新开始' : '再按一次 R 重新开始');
     }
   }
 
@@ -556,10 +564,11 @@
   // ================= 界面 =================
   function showScreen(name) {
     overlay.dataset.screen = name;
+    app.dataset.screen = name || 'playing';
     if (name) {
-      // 让 Enter/空格直接作用于主按钮
+      // 让 Enter/空格直接作用于主按钮（程序聚焦不画焦点框）
       const primary = overlay.querySelector(`[data-panel="${name}"] .btn-primary`);
-      requestAnimationFrame(() => primary && primary.focus({ preventScroll: true }));
+      requestAnimationFrame(() => primary && primary.focus({ preventScroll: true, focusVisible: false }));
     } else if (document.activeElement && overlay.contains(document.activeElement)) {
       document.activeElement.blur();
     }
@@ -570,7 +579,6 @@
     hud.score.textContent = state.score;
     hud.best.textContent = best;
     hud.level.textContent = state.level;
-    hud.length.textContent = state.snake.length;
     $('#menuBest').textContent = getBest();
   }
 
@@ -602,6 +610,23 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1700);
   }
 
+  // 结算分数从 0 滚动到最终值
+  function countUp(el, to, token) {
+    if (reducedMotion || to <= 0) {
+      el.textContent = to;
+      return;
+    }
+    const start = performance.now();
+    const dur = Math.min(900, 300 + to * 2);
+    const tick = (now) => {
+      if (token !== roundToken) return;
+      const p = Math.min(1, (now - start) / dur);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
   function formatTime(ms) {
     const s = Math.floor(ms / 1000);
     return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -615,6 +640,91 @@
       el.checked = el.value === settings.mode;
     });
     $('#modeHint').textContent = MODE_HINTS[settings.mode];
+  }
+
+  // ================= 菜单演示 =================
+  // 菜单背后自己游走的蛇：只是画面，不计分、不出声
+  const DEMO_MAX = 16;
+
+  function moveCell(p, d) {
+    let x = p.x + d.x;
+    let y = p.y + d.y;
+    if (settings.mode === 'wrap') {
+      x = (x + COLS) % COLS;
+      y = (y + ROWS) % ROWS;
+    } else if (x < 0 || x >= COLS || y < 0 || y >= ROWS) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  // 从 start 出发能走到的格子数，用来避免钻进死胡同
+  function reachable(start, blocked) {
+    const seen = new Set([key(start)]);
+    const stack = [start];
+    while (stack.length) {
+      const p = stack.pop();
+      for (const d of Object.values(DIRS)) {
+        const n = moveCell(p, d);
+        if (!n || blocked.has(key(n)) || seen.has(key(n))) continue;
+        seen.add(key(n));
+        stack.push(n);
+      }
+    }
+    return seen.size;
+  }
+
+  // 广度优先找食物的第一步
+  function pathStep(head, blocked) {
+    if (!state.food) return null;
+    const from = new Map([[key(head), null]]);
+    const queue = [head];
+    while (queue.length) {
+      const p = queue.shift();
+      if (same(p, state.food)) {
+        let k = key(p);
+        while (from.get(k) && from.get(k).prev !== key(head)) k = from.get(k).prev;
+        return from.get(k) && from.get(k).dir;
+      }
+      for (const d of Object.values(DIRS)) {
+        const n = moveCell(p, d);
+        if (!n || blocked.has(key(n)) || from.has(key(n))) continue;
+        from.set(key(n), { prev: key(p), dir: d });
+        queue.push(n);
+      }
+    }
+    return null;
+  }
+
+  function demoStep() {
+    const head = state.snake[0];
+    const blocked = new Set(state.walls);
+    state.snake.slice(0, -1).forEach((p) => blocked.add(key(p)));
+    const options = Object.values(DIRS)
+      .filter((d) => !(d.x === -state.dir.x && d.y === -state.dir.y))
+      .map((d) => ({ d, cell: moveCell(head, d) }))
+      .filter((o) => o.cell && !blocked.has(key(o.cell)))
+      .map((o) => ({ ...o, room: reachable(o.cell, blocked) }));
+    if (!options.length) {
+      newState();
+      return;
+    }
+    const best = pathStep(head, blocked);
+    const safe = options.find((o) => o.d === best && o.room >= state.snake.length);
+    const pick = safe || options.sort((a, b) => b.room - a.room)[0];
+
+    state.dir = pick.d;
+    state.prev = state.snake.slice();
+    state.snake.unshift(pick.cell);
+    if (same(pick.cell, state.food)) {
+      burst(pick.cell, 'eat', 10);
+      if (state.snake.length > DEMO_MAX) state.snake.pop();
+      state.food = null;
+      state.food = spawnItem();
+      if (!state.food) newState();
+    } else {
+      state.snake.pop();
+    }
   }
 
   // ================= 特效 =================
@@ -910,6 +1020,14 @@
     const dt = Math.min(now - lastTime, 100);
     lastTime = now;
 
+    if (state.phase === 'menu' && !reducedMotion) {
+      state.acc += dt;
+      while (state.acc >= state.interval && state.phase === 'menu') {
+        state.acc -= state.interval;
+        demoStep();
+      }
+    }
+
     if (state.phase === 'countdown') {
       const before = Math.ceil(state.countdown / (COUNTDOWN / 3));
       state.countdown -= dt;
@@ -938,7 +1056,7 @@
     }
 
     updateEffects(dt);
-    const moving = state.phase === 'playing' || state.phase === 'paused' || state.phase === 'countdown';
+    const moving = state.phase !== 'over' && !(state.phase === 'menu' && reducedMotion);
     render(now, moving ? Math.min(1, state.acc / state.interval) : 1);
     requestAnimationFrame(frame);
   }
@@ -1022,7 +1140,7 @@
 
   const ACTIONS = {
     start: startGame,
-    restart: startGame,
+    restart: () => requestRestart(true),
     resume,
     menu: toMenu,
     'toggle-pause': togglePause,
