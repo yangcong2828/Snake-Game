@@ -20,7 +20,7 @@
   const MODE_HINTS = {
     classic: '撞墙或撞到自己即结束',
     wrap: '穿越边界，从另一侧出现',
-    maze: '避开障碍，每升一级新增岩石',
+    maze: '避开障碍，每升一级新增障碍',
   };
 
   const DIRS = {
@@ -30,23 +30,7 @@
     right: { x: 1, y: 0 },
   };
 
-  const COLORS = {
-    boardA: '#0f151c',
-    boardB: '#121a22',
-    head: '#8af7c6',
-    tail: '#159069',
-    deadHead: '#9aa5b1',
-    deadTail: '#3d4853',
-    food: '#ff6b6b',
-    foodDark: '#d93f55',
-    leaf: '#5ad17a',
-    gold: '#ffd166',
-    goldDark: '#f0a020',
-    wall: '#263241',
-    wallTop: '#33445a',
-    eye: '#0b0f14',
-  };
-
+  const THEMES = window.SnakeThemes;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ================= DOM =================
@@ -88,6 +72,7 @@
   const settings = {
     difficulty: DIFFICULTIES[store.settings.difficulty] ? store.settings.difficulty : 'normal',
     mode: MODE_HINTS[store.settings.mode] ? store.settings.mode : 'classic',
+    theme: THEMES.byId[store.settings.theme] ? store.settings.theme : 'neon',
     muted: !!store.settings.muted,
   };
 
@@ -98,10 +83,12 @@
 
   const bestKey = () => `${settings.mode}.${settings.difficulty}`;
   const getBest = () => store.best[bestKey()] || 0;
+  const theme = () => THEMES.byId[settings.theme];
 
   // ================= 音效（WebAudio 合成，无需音频文件）=================
   const Sound = (() => {
     let ac = null;
+    let noiseBuffer = null;
 
     function ensure() {
       if (!ac) {
@@ -113,40 +100,62 @@
       return ac;
     }
 
+    function envelope(c, t0, dur, vol) {
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      gain.connect(c.destination);
+      return gain;
+    }
+
     function tone(freq, dur, { type = 'sine', vol = 0.12, to = 0, delay = 0 } = {}) {
-      if (settings.muted) return;
       const c = ensure();
       if (!c) return;
       const t0 = c.currentTime + delay;
       const osc = c.createOscillator();
-      const gain = c.createGain();
       osc.type = type;
       osc.frequency.setValueAtTime(freq, t0);
       if (to) osc.frequency.exponentialRampToValueAtTime(to, t0 + dur);
-      gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      osc.connect(gain).connect(c.destination);
+      osc.connect(envelope(c, t0, dur, vol));
       osc.start(t0);
       osc.stop(t0 + dur + 0.03);
     }
 
-    const arpeggio = (notes, gap, opts) =>
-      notes.forEach((f, i) => tone(f, 0.14, { ...opts, delay: i * gap }));
+    function arp(notes, gap, { dur = 0.14, delay = 0, ...opts } = {}) {
+      notes.forEach((f, i) => tone(f, dur, { ...opts, delay: delay + i * gap }));
+    }
+
+    // 白噪声经低通扫频，用于爆炸声
+    function noise(dur, { vol = 0.3, from = 2000, to = 80, delay = 0 } = {}) {
+      const c = ensure();
+      if (!c) return;
+      if (!noiseBuffer) {
+        noiseBuffer = c.createBuffer(1, c.sampleRate, c.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+      }
+      const t0 = c.currentTime + delay;
+      const src = c.createBufferSource();
+      src.buffer = noiseBuffer;
+      const filter = c.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(from, t0);
+      filter.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+      src.connect(filter).connect(envelope(c, t0, dur, vol));
+      src.start(t0);
+      src.stop(t0 + dur + 0.03);
+    }
+
+    const api = { tone, arp, noise };
 
     return {
       unlock: ensure,
-      start: () => arpeggio([392, 523, 659], 0.07, { type: 'triangle' }),
-      eat: () => tone(520, 0.1, { type: 'triangle', to: 900 }),
-      bonus: () => arpeggio([784, 988, 1319, 1568], 0.05, { type: 'square', vol: 0.06 }),
-      level: () => arpeggio([523, 659, 784, 1047], 0.08, { type: 'triangle' }),
-      die: () => {
-        tone(320, 0.55, { type: 'sawtooth', to: 55, vol: 0.09 });
-        tone(160, 0.4, { type: 'square', to: 40, vol: 0.05, delay: 0.05 });
+      play(name) {
+        if (settings.muted) return;
+        const fn = theme().sounds[name];
+        if (fn) fn(api);
       },
-      win: () => arpeggio([523, 659, 784, 1047, 1319, 1568], 0.09, { type: 'triangle' }),
-      click: () => tone(660, 0.05, { type: 'triangle', vol: 0.05 }),
-      tick: () => tone(440, 0.08, { type: 'triangle', vol: 0.08 }),
     };
   })();
 
@@ -155,6 +164,7 @@
   let roundToken = 0;            // 防止旧局的延时回调影响新局
   const particles = [];
   const floats = [];
+  const rings = [];
   let shake = 0;
   let flash = 0;
 
@@ -279,9 +289,10 @@
     const points = (10 + (state.level - 1) * 2) * diff.mult;
     state.score += points;
     later(delay, () => {
-      showScore(points, at, COLORS.food);
-      burst(at, [COLORS.food, '#ffb3b3', COLORS.leaf], 14);
-      Sound.eat();
+      showScore(points, at, 'food');
+      burst(at, 'eat', 14);
+      ring(at, theme().colors.float.food, 1.2);
+      Sound.play('eat');
     });
 
     const level = 1 + Math.floor(state.foods / FOODS_PER_LEVEL);
@@ -320,26 +331,26 @@
     state.bonus = null;
     state.swallow = { x: at.x, y: at.y, start: state.elapsed, dur: state.interval * 0.85, bonus: true };
     later(state.interval * 0.85, () => {
-      showScore(points, at, COLORS.gold);
-      burst(at, [COLORS.gold, '#fff1c2', COLORS.goldDark], 24);
-      Sound.bonus();
+      showScore(points, at, 'bonus');
+      burst(at, 'bonus', 24);
+      ring(at, theme().colors.float.bonus, 2);
+      Sound.play('bonus');
     });
   }
 
   function levelUp() {
-    Sound.level();
-    if (settings.mode === 'maze') {
+    Sound.play('level');
+    const maze = settings.mode === 'maze';
+    if (maze) {
       const head = state.snake[0];
-      // 新岩石远离蛇头，避免“出生即撞”
+      // 新障碍远离蛇头，避免“出生即撞”
       const rock = randomFreeCell((x, y) => Math.abs(x - head.x) + Math.abs(y - head.y) >= 5);
       if (rock) {
         state.walls.add(key(rock));
-        burst(rock, ['#5b6f86', '#8ea3ba'], 10);
+        burst(rock, 'rock', 10);
       }
-      toast(`LEVEL ${state.level} · 新增障碍`);
-    } else {
-      toast(`LEVEL ${state.level} · 速度提升`);
     }
+    toast(theme().text.level(state.level, maze));
   }
 
   function later(ms, fn) {
@@ -370,14 +381,21 @@
     return dx + dy;
   }
 
-  function showScore(points, at, color) {
+  function showScore(points, at, kind) {
     // 靠边时向内收，避免飘字被裁掉
-    floats.push({ x: Math.min(COLS - 1, Math.max(1, at.x + 0.5)), y: Math.max(0.8, at.y + 0.2), text: `+${points}`, color, life: 0, max: 900 });
+    floats.push({
+      x: Math.min(COLS - 1, Math.max(1, at.x + 0.5)),
+      y: Math.max(0.8, at.y + 0.2),
+      text: `+${points}`,
+      kind,
+      life: 0,
+      max: 900,
+    });
     bump(hud.score);
   }
 
   function queueDir(name) {
-    if (state.phase !== 'playing' && state.phase !== 'countdown') return;
+    if (!isActive()) return;
     const d = DIRS[name];
     const last = state.queue.length ? state.queue[state.queue.length - 1] : state.dir;
     if (d === last || (d.x === -last.x && d.y === -last.y)) return;
@@ -390,10 +408,11 @@
     state.dead = true;
     state.deathAt = performance.now();
     state.prev = state.snake.slice();
-    if (!reducedMotion) shake = 9;
+    if (!reducedMotion) shake = theme().shake;
     flash = 1;
-    burst(state.snake[0], [COLORS.food, '#ffffff', COLORS.head], 26);
-    Sound.die();
+    burst(state.snake[0], 'death', 28);
+    ring(state.snake[0], 'rgba(255, 170, 60, 0.9)', 4);
+    Sound.play('die');
     finishRound(false);
   }
 
@@ -402,7 +421,7 @@
     state.phase = 'over';
     state.won = true;
     state.prev = state.snake.slice();
-    Sound.win();
+    Sound.play('win');
     finishRound(true);
   }
 
@@ -413,7 +432,7 @@
       store.best[bestKey()] = state.score;
       saveStore();
     }
-    $('#overTitle').textContent = won ? '完美通关！' : '游戏结束';
+    $('#overTitle').textContent = won ? theme().text.win : theme().text.over;
     $('#overRecord').hidden = !isRecord;
     $('#overScore').textContent = state.score;
     $('#overBest').textContent = Math.max(best, state.score);
@@ -429,14 +448,19 @@
   }
 
   // ================= 流程控制 =================
+  function clearEffects() {
+    particles.length = 0;
+    floats.length = 0;
+    rings.length = 0;
+    shake = 0;
+    flash = 0;
+  }
+
   function startGame() {
     Sound.unlock();
     roundToken++;
     newState();
-    particles.length = 0;
-    floats.length = 0;
-    shake = 0;
-    flash = 0;
+    clearEffects();
     showScreen('');
     beginCountdown();
     updateHud();
@@ -447,7 +471,7 @@
   function beginCountdown() {
     state.phase = 'countdown';
     state.countdown = COUNTDOWN;
-    Sound.tick();
+    Sound.play('tick');
     updatePauseButton();
   }
 
@@ -488,8 +512,7 @@
   function toMenu() {
     roundToken++;
     newState();
-    particles.length = 0;
-    floats.length = 0;
+    clearEffects();
     showScreen('menu');
     updateHud();
     updatePauseButton();
@@ -499,7 +522,35 @@
     settings.muted = !settings.muted;
     saveSettings();
     updateSoundButton();
-    Sound.click();
+    Sound.play('click');
+  }
+
+  // ================= 主题 =================
+  function applyTheme() {
+    const t = theme();
+    document.documentElement.dataset.theme = t.id;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = t.themeColor;
+    $('#brandSub').textContent = t.text.sub;
+    $('#menuTitle').textContent = t.text.menuTitle;
+    $('#startBtn').textContent = t.text.start;
+    $('#pausedTitle').textContent = t.text.paused;
+    $('#overRecord').textContent = t.text.record;
+    if (state && state.phase === 'over') {
+      $('#overTitle').textContent = state.won ? t.text.win : t.text.over;
+    }
+    document.querySelectorAll('input[name="theme"]').forEach((el) => {
+      el.checked = el.value === t.id;
+    });
+    buildBackground();
+  }
+
+  function setTheme(id) {
+    if (!THEMES.byId[id] || id === settings.theme) return;
+    settings.theme = id;
+    saveSettings();
+    applyTheme();
+    Sound.play('click');
   }
 
   // ================= 界面 =================
@@ -567,7 +618,10 @@
   }
 
   // ================= 特效 =================
-  function burst(cell, colors, count) {
+  function burst(cell, kind, count) {
+    const t = theme();
+    const colors = t.colors.particles[kind];
+    const shapes = t.particleShapes;
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 3 + Math.random() * 7;
@@ -578,14 +632,22 @@
         vy: Math.sin(angle) * speed,
         size: 0.06 + Math.random() * 0.12,
         color: colors[i % colors.length],
+        shape: shapes[i % shapes.length],
         life: 0,
         max: 400 + Math.random() * 450,
       });
     }
   }
 
+  // 冲击波圆环（仅星际主题）
+  function ring(cell, color, radius) {
+    if (!theme().rings) return;
+    rings.push({ x: cell.x + 0.5, y: cell.y + 0.5, color, radius, life: 0, max: 450 });
+  }
+
   function updateEffects(dt) {
     const drag = Math.pow(0.9, dt / 16);
+    const gravity = theme().gravity;
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.life += dt;
@@ -596,13 +658,17 @@
       p.x += (p.vx * dt) / 1000;
       p.y += (p.vy * dt) / 1000;
       p.vx *= drag;
-      p.vy *= drag;
+      p.vy = p.vy * drag + (gravity * dt) / 1000;
     }
     for (let i = floats.length - 1; i >= 0; i--) {
       const f = floats[i];
       f.life += dt;
       f.y -= dt * 0.0012;
       if (f.life >= f.max) floats.splice(i, 1);
+    }
+    for (let i = rings.length - 1; i >= 0; i--) {
+      rings[i].life += dt;
+      if (rings[i].life >= rings[i].max) rings.splice(i, 1);
     }
     shake = shake > 0.2 ? shake * Math.pow(0.86, dt / 16) : 0;
     flash = Math.max(0, flash - dt / 450);
@@ -624,72 +690,42 @@
     buildBackground();
   }
 
-  // 棋盘背景只在尺寸变化时绘制一次
+  // 棋盘背景只在尺寸或主题变化时绘制一次
   function buildBackground() {
+    if (!size) return;
     bgCanvas.width = canvas.width;
     bgCanvas.height = canvas.height;
     const g = bgCanvas.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = COLORS.boardA;
-    g.fillRect(0, 0, size, size);
-    g.fillStyle = COLORS.boardB;
-    for (let y = 0; y < ROWS; y++) {
-      for (let x = (y % 2); x < COLS; x += 2) g.fillRect(x * cell, y * cell, cell, cell);
-    }
-    const vignette = g.createRadialGradient(size / 2, size / 2, size * 0.25, size / 2, size / 2, size * 0.75);
-    vignette.addColorStop(0, 'rgba(0,0,0,0)');
-    vignette.addColorStop(1, 'rgba(0,0,0,0.35)');
-    g.fillStyle = vignette;
-    g.fillRect(0, 0, size, size);
+    theme().buildBackground(g, size, cell);
   }
 
   function render(now, alpha) {
     if (!size) return;
+    const t = theme();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
     ctx.save();
     if (shake) ctx.translate((Math.random() * 2 - 1) * shake, (Math.random() * 2 - 1) * shake);
     ctx.drawImage(bgCanvas, 0, 0, size, size);
-    drawWalls();
-    if (state.food) drawFood(state.food, now);
-    if (state.bonus) drawBonus(state.bonus, now);
+    if (t.drawAmbient && !reducedMotion) t.drawAmbient(ctx, size, cell, now);
+    state.walls.forEach((k) => t.drawWall(ctx, (k % COLS) * cell, Math.floor(k / COLS) * cell, cell));
+    if (state.food) t.drawFood(ctx, ...center(state.food), cell, spawnScale(state.food, now), now);
+    if (state.bonus) drawBonus(state.bonus, now, spawnScale(state.bonus, now));
     drawSwallow(now);
     drawSnake(alpha, now);
+    drawRings();
     drawParticles();
     drawFloats();
     ctx.restore();
     if (state.phase === 'countdown') drawCountdown();
     if (flash > 0) {
-      ctx.fillStyle = `rgba(255, 80, 90, ${flash * 0.22})`;
+      ctx.fillStyle = `rgba(${t.colors.flash}, ${flash * 0.22})`;
       ctx.fillRect(0, 0, size, size);
     }
   }
 
-  function roundRect(x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  function drawWalls() {
-    const inset = cell * 0.08;
-    state.walls.forEach((k) => {
-      const x = (k % COLS) * cell + inset;
-      const y = Math.floor(k / COLS) * cell + inset;
-      const s = cell - inset * 2;
-      roundRect(x, y, s, s, cell * 0.2);
-      ctx.fillStyle = COLORS.wall;
-      ctx.fill();
-      roundRect(x + s * 0.12, y + s * 0.1, s * 0.76, s * 0.22, cell * 0.08);
-      ctx.fillStyle = COLORS.wallTop;
-      ctx.fill();
-    });
-  }
-
+  const center = (p) => [(p.x + 0.5) * cell, (p.y + 0.5) * cell];
   const easeOutBack = (t) => 1 + 2.7 * Math.pow(t - 1, 3) + 1.7 * Math.pow(t - 1, 2);
   const spawnScale = (item, now) => easeOutBack(Math.min(1, (now - item.bornAt) / 280));
 
@@ -703,73 +739,22 @@
       return;
     }
     const scale = 1 - p * p;
-    if (sw.bonus) drawBonus({ ...sw, born: state.elapsed, swallowed: true }, now, scale);
-    else drawFood(sw, now, scale);
+    if (sw.bonus) theme().drawBonus(ctx, ...center(sw), cell, scale, now);
+    else theme().drawFood(ctx, ...center(sw), cell, scale, now);
   }
 
-  function drawFood(food, now, scale = spawnScale(food, now)) {
-    const cx = (food.x + 0.5) * cell;
-    const cy = (food.y + 0.5) * cell;
-    const r = cell * 0.33 * (1 + Math.sin(now / 230) * 0.06) * scale;
-    if (r <= 0) return;
-
-    ctx.save();
-    ctx.shadowColor = COLORS.food;
-    ctx.shadowBlur = cell * 0.7;
-    const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
-    grad.addColorStop(0, '#ff9a9a');
-    grad.addColorStop(1, COLORS.foodDark);
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.beginPath();
-    ctx.arc(cx - r * 0.35, cy - r * 0.38, r * 0.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = COLORS.leaf;
-    ctx.beginPath();
-    ctx.ellipse(cx + r * 0.35, cy - r * 0.95, r * 0.36, r * 0.17, -0.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function drawBonus(bonus, now, scale = spawnScale(bonus, now)) {
+  function drawBonus(bonus, now, scale) {
     const remain = 1 - (state.elapsed - bonus.born) / BONUS_LIFETIME;
     if (remain < 0.25 && Math.floor(now / 120) % 2) return; // 即将消失时闪烁
-    const cx = (bonus.x + 0.5) * cell;
-    const cy = (bonus.y + 0.5) * cell;
-    const r = cell * 0.4 * scale;
-    if (r <= 0) return;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(now / 700);
-    ctx.shadowColor = COLORS.gold;
-    ctx.shadowBlur = cell * 0.8;
-    ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const a = (i * Math.PI) / 5 - Math.PI / 2;
-      const rr = i % 2 ? r * 0.46 : r;
-      ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
-    }
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(0, -r, 0, r);
-    grad.addColorStop(0, '#fff1c2');
-    grad.addColorStop(1, COLORS.goldDark);
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.restore();
-    if (bonus.swallowed) return; // 被吞下时不画计时环
+    const [cx, cy] = center(bonus);
+    theme().drawBonus(ctx, cx, cy, cell, scale, now);
 
     // 剩余时间圆环
-    ctx.strokeStyle = 'rgba(255, 209, 102, 0.55)';
+    ctx.strokeStyle = theme().colors.ring;
     ctx.lineWidth = Math.max(1.5, cell * 0.07);
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(cx, cy, cell * 0.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, remain));
+    ctx.arc(cx, cy, cell * 0.52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, remain));
     ctx.stroke();
   }
 
@@ -794,7 +779,7 @@
     return { x: dx, y: dy };
   }
 
-  // 生成蛇身线段：头部向前推进 t，尾部向前收缩 t，拐角保持在格子中心
+  // 连续身体的线段：头部向前推进 t，尾部向前收缩 t，拐角保持在格子中心
   function snakeSegments(alpha) {
     const s = state.snake;
     const p = state.prev;
@@ -822,135 +807,71 @@
     return { head: pts[0], segs };
   }
 
-  const hexToRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  const RGB = {
-    head: hexToRgb(COLORS.head),
-    tail: hexToRgb(COLORS.tail),
-    deadHead: hexToRgb(COLORS.deadHead),
-    deadTail: hexToRgb(COLORS.deadTail),
-  };
-  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
-  const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+  // 分节身体的珠子：每一节各自从上一步位置滑到当前位置
+  function snakeBeads(alpha) {
+    const s = state.snake;
+    const p = state.prev;
+    return s.map((cur, i) => lerpWrap(i < p.length ? p[i] : cur, cur, alpha));
+  }
 
   function drawSnake(alpha, now) {
     const { head, segs } = snakeSegments(alpha);
+    const beads = snakeBeads(alpha);
     if (state.dead) {
+      // 死亡时蛇头向前“撞”进障碍
       const lunge = Math.min(1, (now - state.deathAt) / 90) * 0.3;
-      head.x += state.dir.x * lunge;
-      head.y += state.dir.y * lunge;
-    }
-    const px = (v) => (v + 0.5) * cell;
-
-    // 死亡后逐渐褪色
-    const fade = state.dead ? Math.min(1, (now - state.deathAt) / 500) : 0;
-    const headColor = mix(RGB.head, RGB.deadHead, fade);
-    const tailColor = mix(RGB.tail, RGB.deadTail, fade);
-
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    // 外发光：两层半透明宽描边，比 shadowBlur 省得多
-    if (!state.dead) {
-      for (const [width, alphaGlow] of [[1.25, 0.06], [1.0, 0.1]]) {
-        ctx.strokeStyle = `rgba(94, 240, 176, ${alphaGlow})`;
-        ctx.lineWidth = cell * width;
-        ctx.beginPath();
-        segs.forEach(({ a, b }) => {
-          ctx.moveTo(px(a.x), px(a.y));
-          ctx.lineTo(px(b.x), px(b.y));
-        });
-        ctx.stroke();
+      for (const pt of [head, beads[0]]) {
+        pt.x += state.dir.x * lunge;
+        pt.y += state.dir.y * lunge;
       }
     }
-
-    // 渐变身体（从尾到头绘制，头部压在最上层）
-    for (let i = segs.length - 1; i >= 0; i--) {
-      const { a, b, t } = segs[i];
-      ctx.strokeStyle = rgb(mix(headColor, tailColor, t));
-      ctx.lineWidth = cell * (t > 0.7 ? 0.76 - ((t - 0.7) / 0.3) * 0.18 : 0.76);
-      ctx.beginPath();
-      ctx.moveTo(px(a.x), px(a.y));
-      ctx.lineTo(px(b.x), px(b.y));
-      ctx.stroke();
-    }
-
-    // 高光，增加立体感
-    ctx.strokeStyle = 'rgba(255,255,255,0.13)';
-    ctx.lineWidth = cell * 0.16;
-    ctx.beginPath();
-    segs.forEach(({ a, b }) => {
-      ctx.moveTo(px(a.x) - cell * 0.1, px(a.y) - cell * 0.1);
-      ctx.lineTo(px(b.x) - cell * 0.1, px(b.y) - cell * 0.1);
+    theme().drawSnake(ctx, {
+      segs,
+      head,
+      beads,
+      dir: state.dir,
+      dead: state.dead,
+      fade: state.dead ? Math.min(1, (now - state.deathAt) / 500) : 0,
+      difficulty: settings.difficulty,
+      now,
+      cell,
+      px: (v) => (v + 0.5) * cell,
     });
-    ctx.stroke();
-
-    drawHead(px(head.x), px(head.y), headColor, now);
   }
 
-  function drawHead(hx, hy, color, now) {
-    const d = state.dir;
-    const perp = { x: -d.y, y: d.x };
-
-    // 吐信子
-    if (!state.dead && now % 2600 < 220) {
-      ctx.strokeStyle = COLORS.food;
-      ctx.lineWidth = Math.max(1.2, cell * 0.07);
-      const bx = hx + d.x * cell * 0.4;
-      const by = hy + d.y * cell * 0.4;
-      const tx = bx + d.x * cell * 0.25;
-      const ty = by + d.y * cell * 0.25;
+  function drawRings() {
+    rings.forEach((r) => {
+      const p = r.life / r.max;
+      ctx.globalAlpha = 1 - p;
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = Math.max(1, cell * 0.12 * (1 - p));
       ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(tx, ty);
-      ctx.lineTo(tx + (d.x + perp.x) * cell * 0.1, ty + (d.y + perp.y) * cell * 0.1);
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(tx + (d.x - perp.x) * cell * 0.1, ty + (d.y - perp.y) * cell * 0.1);
+      ctx.arc(r.x * cell, r.y * cell, cell * r.radius * (0.2 + p), 0, Math.PI * 2);
       ctx.stroke();
-    }
-
-    ctx.fillStyle = rgb(color);
-    ctx.beginPath();
-    ctx.arc(hx, hy, cell * 0.44, 0, Math.PI * 2);
-    ctx.fill();
-
-    for (const side of [-1, 1]) {
-      const ex = hx + d.x * cell * 0.12 + perp.x * cell * 0.2 * side;
-      const ey = hy + d.y * cell * 0.12 + perp.y * cell * 0.2 * side;
-      if (state.dead) {
-        const k = cell * 0.09;
-        ctx.strokeStyle = COLORS.eye;
-        ctx.lineWidth = Math.max(1.5, cell * 0.07);
-        ctx.beginPath();
-        ctx.moveTo(ex - k, ey - k);
-        ctx.lineTo(ex + k, ey + k);
-        ctx.moveTo(ex + k, ey - k);
-        ctx.lineTo(ex - k, ey + k);
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(ex, ey, cell * 0.12, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = COLORS.eye;
-        ctx.beginPath();
-        ctx.arc(ex + d.x * cell * 0.04, ey + d.y * cell * 0.04, cell * 0.065, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
+    });
+    ctx.globalAlpha = 1;
   }
 
   function drawCountdown() {
+    const t = theme();
     const unit = COUNTDOWN / 3;
     const n = Math.ceil(state.countdown / unit);
     const p = 1 - (state.countdown - (n - 1) * unit) / unit; // 当前数字的进度 0→1
     ctx.save();
     ctx.globalAlpha = 1 - p * 0.7;
-    ctx.fillStyle = '#e6edf3';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `800 ${Math.round(cell * (4 - p * 1.2))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 20;
+    ctx.font = `800 ${Math.round(cell * (4 - p * 1.2))}px ${t.font}`;
+    if (t.colors.countdownOutline) {
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = cell * 0.5;
+      ctx.strokeStyle = t.colors.countdownOutline;
+      ctx.strokeText(String(n), size / 2, size / 2);
+    } else {
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 20;
+    }
+    ctx.fillStyle = t.colors.countdown;
     ctx.fillText(String(n), size / 2, size / 2);
     ctx.restore();
   }
@@ -958,21 +879,25 @@
   function drawParticles() {
     particles.forEach((p) => {
       ctx.globalAlpha = 1 - p.life / p.max;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x * cell, p.y * cell, p.size * cell, 0, Math.PI * 2);
-      ctx.fill();
+      THEMES.drawParticle(ctx, p, cell);
     });
     ctx.globalAlpha = 1;
   }
 
   function drawFloats() {
+    const t = theme();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `800 ${Math.round(cell * 0.6)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.lineJoin = 'round';
+    ctx.font = `800 ${Math.round(cell * 0.6)}px ${t.font}`;
     floats.forEach((f) => {
       ctx.globalAlpha = 1 - Math.pow(f.life / f.max, 2);
-      ctx.fillStyle = f.color;
+      if (t.colors.floatOutline) {
+        ctx.strokeStyle = t.colors.floatOutline;
+        ctx.lineWidth = cell * 0.18;
+        ctx.strokeText(f.text, f.x * cell, f.y * cell);
+      }
+      ctx.fillStyle = t.colors.float[f.kind];
       ctx.fillText(f.text, f.x * cell, f.y * cell);
     });
     ctx.globalAlpha = 1;
@@ -991,9 +916,9 @@
       const after = Math.ceil(state.countdown / (COUNTDOWN / 3));
       if (state.countdown <= 0) {
         state.phase = 'playing';
-        Sound.start();
+        Sound.play('start');
       } else if (after !== before) {
-        Sound.tick();
+        Sound.play('tick');
       }
     }
 
@@ -1007,7 +932,7 @@
         step();
       }
       if (state.bonus && state.elapsed - state.bonus.born > BONUS_LIFETIME) {
-        burst(state.bonus, ['#8b98a5', '#5d6b78'], 8);
+        burst(state.bonus, 'expire', 8);
         state.bonus = null;
       }
     }
@@ -1060,6 +985,12 @@
       case 'KeyM':
         toggleSound();
         break;
+      case 'KeyT': {
+        // 循环切换主题
+        const ids = THEMES.list.map((t) => t.id);
+        setTheme(ids[(ids.indexOf(settings.theme) + 1) % ids.length]);
+        break;
+      }
     }
   });
 
@@ -1114,7 +1045,14 @@
       syncMenu();
       if (state.phase === 'menu') newState();   // 预览新模式的棋盘
       updateHud();
-      Sound.click();
+      Sound.play('click');
+    });
+  });
+
+  document.querySelectorAll('input[name="theme"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      setTheme(input.value);
+      input.blur(); // 避免之后的方向键改变选中的主题
     });
   });
 
@@ -1125,6 +1063,7 @@
 
   // ================= 启动 =================
   newState();
+  applyTheme();
   syncMenu();
   updateHud();
   updatePauseButton();

@@ -9,6 +9,26 @@
     --accent-ink: #052a1c;
     --gold: #ffd166;
     --board: #0f151c;
+    --glow-rgb: 94, 240, 176;
+    --gold-rgb: 255, 209, 102;
+    --overlay: rgba(8, 12, 17, 0.6);
+    --primary-hover: #7ff5c2;
+    --badge-bg: var(--gold);
+    --badge-ink: #2b1d00;
+    --score-a: #ffffff;
+    --score-b: #9fb3c4;
+    --toast-bg: rgba(18, 24, 33, 0.85);
+    --toast-text: var(--gold);
+    --footer: #5d6b78;
+    --radius-stage: 18px;
+    --btn-radius: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --brand-mark:
+        radial-gradient(circle at 72% 28%, #ff6b6b 0 3.5px, transparent 4px),
+        linear-gradient(135deg, #8af7c6, #1aa37a);
+    --page-bg:
+        radial-gradient(1200px 600px at 50% -10%, rgba(94, 240, 176, 0.08), transparent 60%),
+        var(--bg);
 
     /* 棋盘边长：受视口宽、高共同约束 */
     --stage: clamp(260px, min(94vw, calc(100vh - 240px)), 560px);
@@ -42,10 +62,9 @@ body {
     display: flex;
     justify-content: center;
     padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
-    background:
-        radial-gradient(1200px 600px at 50% -10%, rgba(94, 240, 176, 0.08), transparent 60%),
-        var(--bg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--page-bg);
+    background-color: var(--bg);
+    font-family: var(--font);
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
 }
@@ -78,10 +97,8 @@ body {
     width: 34px;
     height: 34px;
     border-radius: 10px;
-    background:
-        radial-gradient(circle at 72% 28%, #ff6b6b 0 3.5px, transparent 4px),
-        linear-gradient(135deg, #8af7c6, #1aa37a);
-    box-shadow: 0 6px 20px -6px rgba(94, 240, 176, 0.6);
+    background: var(--brand-mark);
+    box-shadow: 0 6px 20px -6px rgba(var(--glow-rgb), 0.6);
 }
 
 h1 {
@@ -140,13 +157,13 @@ h1 {
     position: relative;
     width: var(--stage);
     height: var(--stage);
-    border-radius: 18px;
+    border-radius: var(--radius-stage);
     overflow: hidden;
     background: var(--board);
     box-shadow:
         0 0 0 1px var(--border),
         0 30px 80px -24px rgba(0, 0, 0, 0.75),
-        0 0 60px -20px rgba(94, 240, 176, 0.18);
+        0 0 60px -20px rgba(var(--glow-rgb), 0.18);
 }
 
 canvas {
@@ -164,7 +181,7 @@ canvas {
     place-items: center;
     padding: 16px;
     overflow: auto;
-    background: rgba(8, 12, 17, 0.6);
+    background: var(--overlay);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     transition: opacity 0.25s ease, visibility 0s;
@@ -291,7 +308,7 @@ button {
 
 .btn {
     padding: 12px 18px;
-    border-radius: 12px;
+    border-radius: var(--btn-radius);
     border: 1px solid transparent;
     font-size: 15px;
     font-weight: 600;
@@ -313,11 +330,11 @@ button {
 .btn-primary {
     background: var(--accent);
     color: var(--accent-ink);
-    box-shadow: 0 10px 30px -10px rgba(94, 240, 176, 0.7);
+    box-shadow: 0 10px 30px -10px rgba(var(--glow-rgb), 0.7);
 }
 
 .btn-primary:hover {
-    background: #7ff5c2;
+    background: var(--primary-hover);
 }
 
 .btn-ghost {
@@ -343,9 +360,9 @@ button {
     border-radius: 999px;
     font-size: 12px;
     font-weight: 700;
-    color: #2b1d00;
-    background: var(--gold);
-    box-shadow: 0 0 24px -4px rgba(255, 209, 102, 0.7);
+    color: var(--badge-ink);
+    background: var(--badge-bg);
+    box-shadow: 0 0 24px -4px rgba(var(--gold-rgb), 0.7);
 }
 
 .badge[hidden] {
@@ -358,7 +375,7 @@ button {
     font-weight: 800;
     line-height: 1;
     font-variant-numeric: tabular-nums;
-    background: linear-gradient(180deg, #ffffff, #9fb3c4);
+    background: linear-gradient(180deg, var(--score-a), var(--score-b));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -397,9 +414,9 @@ button {
     left: 50%;
     padding: 8px 18px;
     border-radius: 999px;
-    background: rgba(18, 24, 33, 0.85);
-    border: 1px solid rgba(255, 209, 102, 0.4);
-    color: var(--gold);
+    background: var(--toast-bg);
+    border: 1px solid rgba(var(--gold-rgb), 0.4);
+    color: var(--toast-text);
     font-size: 14px;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -422,8 +439,30 @@ button {
 /* ---------- 工具栏 ---------- */
 .toolbar {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 10px 12px;
 }
+
+.theme-switch span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
+.swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.swatch-neon  { background: linear-gradient(135deg, #8af7c6, #1aa37a); }
+.swatch-scifi { background: radial-gradient(circle, #ffe81f 0 35%, #0a0d1c 40%); }
+.swatch-sweet { background: linear-gradient(135deg, #ffb3d1, #c9a7ff); }
 
 .icon-btn {
     width: 44px;
@@ -534,11 +573,13 @@ kbd {
 
 .footer {
     font-size: 12px;
-    color: #5d6b78;
+    color: var(--footer);
     letter-spacing: 0.06em;
 }
 
 @media (max-width: 420px) {
+    .toolbar { gap: 8px; }
+    .theme-switch span { padding: 7px 8px; gap: 4px; }
     .hud { width: 100%; }
     .hud-item { flex: 1; min-width: 0; }
     .final-score { font-size: 44px; }
@@ -549,4 +590,166 @@ kbd {
         animation-duration: 0.01ms !important;
         transition-duration: 0.01ms !important;
     }
+}
+
+/* =====================================================
+   主题：星际
+   ===================================================== */
+html[data-theme="scifi"] {
+    --bg: #03040a;
+    --surface: rgba(12, 16, 28, 0.9);
+    --surface-2: rgba(24, 30, 50, 0.95);
+    --border: rgba(255, 232, 31, 0.22);
+    --text: #e8ecf4;
+    --muted: #7d8aa3;
+    --accent: #ffe81f;
+    --accent-ink: #0a0a00;
+    --gold: #7df9ff;
+    --gold-rgb: 125, 249, 255;
+    --glow-rgb: 255, 232, 31;
+    --board: #02030a;
+    --overlay: rgba(2, 3, 10, 0.66);
+    --primary-hover: #fff27a;
+    --badge-bg: #7df9ff;
+    --badge-ink: #00222a;
+    --score-a: #fff7b0;
+    --score-b: #ffe81f;
+    --toast-bg: rgba(3, 4, 10, 0.88);
+    --toast-text: #ffe81f;
+    --footer: #4b5568;
+    --radius-stage: 4px;
+    --btn-radius: 4px;
+    --font: "SF Mono", "Menlo", "Consolas", "PingFang SC", "Microsoft YaHei", monospace;
+    --brand-mark:
+        radial-gradient(circle, #ffe81f 0 3px, transparent 3.5px),
+        radial-gradient(circle, transparent 0 8px, #ffe81f 8.5px 10.5px, transparent 11px),
+        #05060f;
+    --page-bg:
+        radial-gradient(1px 1px at 25px 35px, rgba(255, 255, 255, 0.85), transparent 70%) 0 0 / 230px 230px,
+        radial-gradient(1px 1px at 140px 80px, rgba(255, 255, 255, 0.6), transparent 70%) 0 0 / 230px 230px,
+        radial-gradient(1.5px 1.5px at 90px 170px, rgba(255, 255, 255, 0.9), transparent 70%) 0 0 / 230px 230px,
+        radial-gradient(1px 1px at 200px 20px, rgba(255, 255, 255, 0.5), transparent 70%) 0 0 / 230px 230px,
+        radial-gradient(1px 1px at 60px 110px, rgba(180, 210, 255, 0.7), transparent 70%) 0 0 / 170px 170px,
+        radial-gradient(900px 500px at 15% 10%, rgba(110, 60, 200, 0.18), transparent 70%),
+        radial-gradient(800px 500px at 90% 90%, rgba(30, 120, 220, 0.14), transparent 70%),
+        #03040a;
+}
+
+html[data-theme="scifi"] h1,
+html[data-theme="scifi"] .panel-title {
+    color: var(--accent);
+    letter-spacing: 0.12em;
+}
+
+html[data-theme="scifi"] .brand-sub,
+html[data-theme="scifi"] .hud dt,
+html[data-theme="scifi"] .option-group legend,
+html[data-theme="scifi"] .stats dt {
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+}
+
+html[data-theme="scifi"] .btn {
+    letter-spacing: 0.16em;
+}
+
+html[data-theme="scifi"] .hud-item,
+html[data-theme="scifi"] .stats div {
+    border-radius: 3px;
+}
+
+/* 战术瞄准框四角 */
+html[data-theme="scifi"] .stage::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0.75;
+    background:
+        linear-gradient(var(--accent), var(--accent)) top left / 18px 2px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) top left / 2px 18px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) top right / 18px 2px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) top right / 2px 18px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom left / 18px 2px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom left / 2px 18px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom right / 18px 2px no-repeat,
+        linear-gradient(var(--accent), var(--accent)) bottom right / 2px 18px no-repeat;
+}
+
+/* =====================================================
+   主题：甜心
+   ===================================================== */
+html[data-theme="sweet"] {
+    color-scheme: light;
+    --bg: #fff1f7;
+    --surface: #ffffff;
+    --surface-2: #fff0f6;
+    --border: #ffd0e3;
+    --text: #6b3654;
+    --muted: #b9849f;
+    --accent: #ff7eb3;
+    --accent-ink: #ffffff;
+    --gold: #ffb300;
+    --gold-rgb: 255, 160, 200;
+    --glow-rgb: 255, 126, 179;
+    --board: #fffafc;
+    --overlay: rgba(255, 240, 247, 0.72);
+    --primary-hover: #ff94c2;
+    --badge-bg: #ffe066;
+    --badge-ink: #6b3654;
+    --score-a: #ff7eb3;
+    --score-b: #b98cff;
+    --toast-bg: rgba(255, 255, 255, 0.94);
+    --toast-text: #ff5c99;
+    --footer: #c79bb1;
+    --radius-stage: 28px;
+    --btn-radius: 999px;
+    --font: ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --brand-mark:
+        radial-gradient(circle at 34% 30%, #ffffff 0 3.5px, transparent 4px),
+        linear-gradient(135deg, #ffb3d1, #ff7eb3 55%, #c9a7ff);
+    --page-bg:
+        radial-gradient(circle, rgba(255, 160, 200, 0.35) 1.5px, transparent 2px) 0 0 / 22px 22px,
+        radial-gradient(900px 500px at 50% -10%, rgba(255, 170, 210, 0.5), transparent 70%),
+        #fff1f7;
+}
+
+html[data-theme="sweet"] .stage {
+    box-shadow:
+        0 0 0 3px #ffffff,
+        0 0 0 5px var(--border),
+        0 24px 60px -24px rgba(255, 110, 170, 0.45);
+}
+
+html[data-theme="sweet"] .hud-item,
+html[data-theme="sweet"] .stats div {
+    border-radius: 16px;
+    box-shadow: 0 4px 12px -6px rgba(255, 110, 170, 0.35);
+}
+
+html[data-theme="sweet"] .segmented {
+    border-radius: 999px;
+}
+
+html[data-theme="sweet"] .segmented span {
+    border-radius: 999px;
+}
+
+html[data-theme="sweet"] .icon-btn,
+html[data-theme="sweet"] .dpad-btn {
+    box-shadow: 0 4px 12px -6px rgba(255, 110, 170, 0.45);
+}
+
+html[data-theme="sweet"] .dpad-btn {
+    border-radius: 50%;
+}
+
+html[data-theme="sweet"] .swatch {
+    box-shadow: 0 0 0 1px rgba(107, 54, 84, 0.2);
+}
+
+html[data-theme="sweet"] .overlay {
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
 }

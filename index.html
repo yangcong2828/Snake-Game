@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="neon">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -15,7 +15,7 @@
         <span class="brand-mark" aria-hidden="true"></span>
         <div>
           <h1>贪吃蛇</h1>
-          <p class="brand-sub">SNAKE</p>
+          <p class="brand-sub" id="brandSub">SNAKE</p>
         </div>
       </div>
       <dl class="hud">
@@ -32,7 +32,7 @@
       <div class="overlay" id="overlay" data-screen="menu">
         <!-- 主菜单 -->
         <section class="panel" data-panel="menu" aria-label="开始菜单">
-          <h2 class="panel-title">准备好了吗？</h2>
+          <h2 class="panel-title" id="menuTitle">准备好了吗？</h2>
 
           <fieldset class="option-group">
             <legend>难度</legend>
@@ -53,13 +53,13 @@
             <p class="option-hint" id="modeHint"></p>
           </fieldset>
 
-          <button class="btn btn-primary" data-action="start">开始游戏</button>
+          <button class="btn btn-primary" id="startBtn" data-action="start">开始游戏</button>
           <p class="panel-foot">本模式最高分 <strong id="menuBest">0</strong></p>
         </section>
 
         <!-- 暂停 -->
         <section class="panel" data-panel="paused" aria-label="已暂停">
-          <h2 class="panel-title">已暂停</h2>
+          <h2 class="panel-title" id="pausedTitle">已暂停</h2>
           <button class="btn btn-primary" data-action="resume">继续游戏</button>
           <div class="btn-row">
             <button class="btn btn-ghost" data-action="restart">重新开始</button>
@@ -98,6 +98,11 @@
         <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" fill="currentColor"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>
         <svg class="icon-mute" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>
       </button>
+      <div class="segmented theme-switch" role="radiogroup" aria-label="主题">
+        <label title="霓虹主题 (T 切换)"><input type="radio" name="theme" value="neon"><span><i class="swatch swatch-neon"></i>霓虹</span></label>
+        <label title="星际主题 (T 切换)"><input type="radio" name="theme" value="scifi"><span><i class="swatch swatch-scifi"></i>星际</span></label>
+        <label title="甜心主题 (T 切换)"><input type="radio" name="theme" value="sweet"><span><i class="swatch swatch-sweet"></i>甜心</span></label>
+      </div>
     </nav>
 
     <!-- 触屏方向键 -->
@@ -109,12 +114,13 @@
     </div>
 
     <p class="keys">
-      <kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 移动 · <kbd>空格</kbd> 暂停 · <kbd>R</kbd> 重开 · <kbd>M</kbd> 静音
+      <kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 移动 · <kbd>空格</kbd> 暂停 · <kbd>R</kbd> 重开 · <kbd>M</kbd> 静音 · <kbd>T</kbd> 主题
     </p>
 
     <footer class="footer">制作人：景电伟</footer>
   </main>
 
+  <script src="./src/scripts/themes.js"></script>
   <script src="./src/scripts/app.js"></script>
 </body>
 </html>
