@@ -148,6 +148,11 @@ h1 {
     letter-spacing: 0.08em;
 }
 
+.hud-meta .is-me dt {
+    color: var(--accent);
+    font-weight: 700;
+}
+
 .hud-meta dd {
     min-width: 2.5em;
     margin: 0;
@@ -258,15 +263,162 @@ canvas {
     font-weight: 700;
 }
 
-.panel-foot {
-    margin: 0;
-    font-size: 13px;
+/* ---------- 谁来玩 ---------- */
+.players {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.player {
+    position: relative;
+    cursor: pointer;
+}
+
+.player input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.player-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: var(--btn-radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    opacity: 0.6;
+    transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.player:hover .player-card {
+    opacity: 0.85;
+}
+
+.player input:checked + .player-card {
+    opacity: 1;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 8px 24px -12px rgba(var(--glow-rgb), 0.8);
+}
+
+.player input:focus-visible + .player-card {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* 头像用玩家自己的主题配色，不随当前主题变化 */
+.avatar {
+    position: relative;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.avatar[data-theme="neon"] {
+    color: #06050c;
+    background: linear-gradient(135deg, #2ef2ff, #ff2bd6);
+}
+
+.avatar[data-theme="scifi"] {
+    color: #ffe81f;
+    background: #05060f;
+    box-shadow: inset 0 0 0 2px #ffe81f;
+    font-family: "SF Mono", "Menlo", "Consolas", "PingFang SC", monospace;
+}
+
+.avatar[data-theme="sweet"] {
+    color: #ffffff;
+    background: linear-gradient(135deg, #ffb3d1, #ff7eb3 55%, #c9a7ff);
+    box-shadow: inset 0 0 0 2px #ffffff;
+}
+
+.crown {
+    position: absolute;
+    top: -10px;
+    right: -6px;
+    font-size: 14px;
+    font-style: normal;
+    transform: rotate(18deg);
+}
+
+.crown[hidden] {
+    display: none;
+}
+
+.player-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
+}
+
+.player-label {
+    font-size: 11px;
     color: var(--muted);
 }
 
-.panel-foot strong {
-    color: var(--gold);
+.player-info b {
+    font-size: 20px;
     font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 玩法（折叠） ---------- */
+.more {
+    border-radius: var(--btn-radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.more summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.more summary::-webkit-details-marker {
+    display: none;
+}
+
+.more summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--btn-radius);
+}
+
+.combo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.combo::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform 0.2s;
+}
+
+.more[open] .combo::after {
+    transform: translateY(1px) rotate(-135deg);
+}
+
+.more .options {
+    padding: 0 12px 12px;
 }
 
 .options {
@@ -274,7 +426,6 @@ canvas {
     grid-template-columns: auto 1fr;
     align-items: center;
     gap: 10px 12px;
-    margin: 2px 0 4px;
 }
 
 .option-label {
@@ -297,7 +448,7 @@ canvas {
     grid-auto-columns: 1fr;
     padding: 4px;
     border-radius: 12px;
-    background: var(--surface);
+    background: var(--surface-2);
     border: 1px solid var(--border);
 }
 
@@ -418,7 +569,7 @@ button {
 }
 
 .over-gap {
-    margin: -4px 0 2px;
+    margin: -4px 0 6px;
     min-height: 1.4em;
     font-size: 13px;
     color: var(--muted);
@@ -426,32 +577,6 @@ button {
 
 .over-gap strong {
     color: var(--gold);
-    font-variant-numeric: tabular-nums;
-}
-
-.stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin: 0 0 4px;
-}
-
-.stats div {
-    padding: 8px 4px;
-    border-radius: 10px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-}
-
-.stats dt {
-    font-size: 11px;
-    color: var(--muted);
-}
-
-.stats dd {
-    margin: 2px 0 0;
-    font-size: 15px;
-    font-weight: 700;
     font-variant-numeric: tabular-nums;
 }
 
@@ -492,24 +617,6 @@ button {
     align-items: center;
     gap: 10px 12px;
 }
-
-.theme-switch span {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-}
-
-.swatch {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
-}
-
-.swatch-neon  { background: linear-gradient(135deg, #2ef2ff, #ff2bd6); }
-.swatch-scifi { background: radial-gradient(circle, #ffe81f 0 35%, #0a0d1c 40%); }
-.swatch-sweet { background: linear-gradient(135deg, #ffb3d1, #c9a7ff); }
 
 .icon-btn {
     width: 44px;
@@ -650,7 +757,6 @@ kbd {
 }
 
 @media (max-width: 420px) {
-    .theme-switch span { gap: 4px; }
     .hud { gap: 12px; }
     .hud-meta { padding-right: 12px; }
     .final-score { font-size: 44px; }
@@ -717,7 +823,7 @@ html[data-theme="scifi"] .brand-sub,
 html[data-theme="scifi"] .hud-meta dt,
 html[data-theme="scifi"] .hud-score-label,
 html[data-theme="scifi"] .option-label,
-html[data-theme="scifi"] .stats dt {
+html[data-theme="scifi"] .player-label {
     letter-spacing: 0.24em;
     text-transform: uppercase;
 }
@@ -726,7 +832,8 @@ html[data-theme="scifi"] .btn {
     letter-spacing: 0.16em;
 }
 
-html[data-theme="scifi"] .stats div {
+html[data-theme="scifi"] .segmented,
+html[data-theme="scifi"] .segmented span {
     border-radius: 3px;
 }
 
@@ -795,9 +902,9 @@ html[data-theme="sweet"] .stage {
         0 24px 60px -24px rgba(255, 110, 170, 0.45);
 }
 
-html[data-theme="sweet"] .stats div {
-    border-radius: 16px;
-    box-shadow: 0 4px 12px -6px rgba(255, 110, 170, 0.35);
+html[data-theme="sweet"] .player-card,
+html[data-theme="sweet"] .more {
+    border-radius: 20px;
 }
 
 html[data-theme="sweet"] .segmented {
@@ -815,10 +922,6 @@ html[data-theme="sweet"] .dpad-btn {
 
 html[data-theme="sweet"] .dpad-btn {
     border-radius: 50%;
-}
-
-html[data-theme="sweet"] .swatch {
-    box-shadow: 0 0 0 1px rgba(107, 54, 84, 0.2);
 }
 
 html[data-theme="sweet"] .overlay:not([data-screen="menu"]) {

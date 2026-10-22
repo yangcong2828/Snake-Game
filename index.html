@@ -19,10 +19,8 @@
         </div>
       </div>
       <div class="hud">
-        <dl class="hud-meta">
-          <div><dt>最高</dt><dd id="hudBest">0</dd></div>
-          <div><dt>等级</dt><dd id="hudLevel">1</dd></div>
-        </dl>
+        <!-- 两人各自的纪录，由 app.js 按 PLAYERS 生成 -->
+        <dl class="hud-meta" id="hudMeta" aria-label="最高分"></dl>
         <div class="hud-score">
           <span class="hud-score-label">得分</span>
           <span class="hud-score-value" id="hudScore">0</span>
@@ -38,32 +36,30 @@
         <section class="panel" data-panel="menu" aria-label="开始菜单">
           <h2 class="panel-title" id="menuTitle">准备好了吗？</h2>
 
-          <div class="options">
-            <span class="option-label" id="lblDifficulty">难度</span>
-            <div class="segmented" role="radiogroup" aria-labelledby="lblDifficulty">
-              <label><input type="radio" name="difficulty" value="easy"><span>轻松</span></label>
-              <label><input type="radio" name="difficulty" value="normal"><span>标准</span></label>
-              <label><input type="radio" name="difficulty" value="hard"><span>困难</span></label>
-            </div>
+          <!-- 谁来玩：也是两人的比分牌，由 app.js 按 PLAYERS 生成 -->
+          <div class="players" id="players" role="radiogroup" aria-label="谁来玩"></div>
 
-            <span class="option-label" id="lblMode">模式</span>
-            <div class="segmented" role="radiogroup" aria-labelledby="lblMode">
-              <label><input type="radio" name="mode" value="classic"><span>经典</span></label>
-              <label><input type="radio" name="mode" value="wrap"><span>穿墙</span></label>
-              <label><input type="radio" name="mode" value="maze"><span>障碍</span></label>
-            </div>
-            <p class="option-hint" id="modeHint"></p>
+          <details class="more">
+            <summary><span class="option-label">玩法</span><span class="combo" id="comboLabel"></span></summary>
+            <div class="options">
+              <span class="option-label" id="lblDifficulty">难度</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="lblDifficulty">
+                <label><input type="radio" name="difficulty" value="easy"><span>轻松</span></label>
+                <label><input type="radio" name="difficulty" value="normal"><span>标准</span></label>
+                <label><input type="radio" name="difficulty" value="hard"><span>困难</span></label>
+              </div>
 
-            <span class="option-label" id="lblTheme">主题</span>
-            <div class="segmented theme-switch" role="radiogroup" aria-labelledby="lblTheme">
-              <label title="霓虹 (T 切换)"><input type="radio" name="theme" value="neon"><span><i class="swatch swatch-neon"></i>霓虹</span></label>
-              <label title="星际 (T 切换)"><input type="radio" name="theme" value="scifi"><span><i class="swatch swatch-scifi"></i>星际</span></label>
-              <label title="甜心 (T 切换)"><input type="radio" name="theme" value="sweet"><span><i class="swatch swatch-sweet"></i>甜心</span></label>
+              <span class="option-label" id="lblMode">模式</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="lblMode">
+                <label><input type="radio" name="mode" value="classic"><span>经典</span></label>
+                <label><input type="radio" name="mode" value="wrap"><span>穿墙</span></label>
+                <label><input type="radio" name="mode" value="maze"><span>障碍</span></label>
+              </div>
+              <p class="option-hint" id="modeHint"></p>
             </div>
-          </div>
+          </details>
 
           <button class="btn btn-primary" id="startBtn" data-action="start">开始游戏</button>
-          <p class="panel-foot">本模式最高分 <strong id="menuBest">0</strong></p>
         </section>
 
         <!-- 暂停 -->
@@ -82,14 +78,8 @@
           <h2 class="panel-title" id="overTitle">游戏结束</h2>
           <p class="final-score" id="overScore">0</p>
           <p class="over-gap" id="overGap"></p>
-          <dl class="stats">
-            <div><dt>最高分</dt><dd id="overBest">0</dd></div>
-            <div><dt>长度</dt><dd id="overLength">0</dd></div>
-            <div><dt>等级</dt><dd id="overLevel">1</dd></div>
-            <div><dt>用时</dt><dd id="overTime">00:00</dd></div>
-          </dl>
           <button class="btn btn-primary" data-action="restart">再来一局</button>
-          <button class="btn btn-ghost" data-action="menu">更换设置</button>
+          <button class="btn btn-ghost" data-action="menu">换人 / 玩法</button>
         </section>
       </div>
 

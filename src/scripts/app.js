@@ -23,6 +23,13 @@
     maze: '避开障碍，每升一级新增障碍',
   };
 
+  // 两位玩家：各记各的分，主题跟着人走
+  const PLAYERS = [
+    { id: 'jing', name: '景', theme: 'scifi' },
+    { id: 'na', name: '娜', theme: 'sweet' },
+  ];
+  const PLAYER_BY_ID = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
+
   const DIRS = {
     up: { x: 0, y: -1 },
     down: { x: 0, y: 1 },
@@ -42,11 +49,8 @@
   const toastEl = $('#toast');
   const pauseBtn = $('#pauseBtn');
   const soundBtn = $('#soundBtn');
-  const hud = {
-    score: $('#hudScore'),
-    best: $('#hudBest'),
-    level: $('#hudLevel'),
-  };
+  const hud = { score: $('#hudScore') };
+  buildPlayers();
 
   // ================= 本地存储 =================
   const STORAGE_KEY = 'snake-game:v1';
@@ -55,7 +59,13 @@
   function loadStore() {
     try {
       const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-      return { best: data.best || {}, settings: data.settings || {} };
+      const best = {};
+      Object.entries(data.best || {}).forEach(([k, v]) => {
+        // 旧版纪录没有玩家维度，归到第一位玩家名下
+        const full = k.split('.').length === 2 ? `${PLAYERS[0].id}.${k}` : k;
+        best[full] = Math.max(best[full] || 0, v);
+      });
+      return { best, settings: data.settings || {} };
     } catch {
       return { best: {}, settings: {} };
     }
@@ -72,7 +82,12 @@
   const settings = {
     difficulty: DIFFICULTIES[store.settings.difficulty] ? store.settings.difficulty : 'normal',
     mode: MODE_HINTS[store.settings.mode] ? store.settings.mode : 'classic',
-    theme: THEMES.byId[store.settings.theme] ? store.settings.theme : 'neon',
+    player: PLAYER_BY_ID[store.settings.player] ? store.settings.player : PLAYERS[0].id,
+    // 每人一套主题，按 T 换的是当前玩家自己的
+    themes: Object.fromEntries(PLAYERS.map((p) => {
+      const saved = (store.settings.themes || {})[p.id];
+      return [p.id, THEMES.byId[saved] ? saved : p.theme];
+    })),
     muted: !!store.settings.muted,
   };
 
@@ -81,9 +96,9 @@
     saveStore();
   }
 
-  const bestKey = () => `${settings.mode}.${settings.difficulty}`;
-  const getBest = () => store.best[bestKey()] || 0;
-  const theme = () => THEMES.byId[settings.theme];
+  const bestKey = (player = settings.player) => `${player}.${settings.mode}.${settings.difficulty}`;
+  const getBest = (player) => store.best[bestKey(player)] || 0;
+  const theme = () => THEMES.byId[settings.themes[settings.player]];
 
   // ================= 音效（WebAudio 合成，无需音频文件）=================
   const Sound = (() => {
@@ -189,7 +204,6 @@
       interval: DIFFICULTIES[settings.difficulty].start,
       acc: 0,
       elapsed: 0,                // 游戏时间（毫秒），驱动定时器与奖励倒计时
-      playTime: 0,
       countdown: 0,
       grace: false,              // 即将撞上时多给一拍转向机会
       timers: [],                // 按游戏时间延后执行的回调（暂停时冻结）
@@ -435,15 +449,8 @@
     $('#overTitle').textContent = won ? theme().text.win : theme().text.over;
     $('#overRecord').hidden = !isRecord;
     $('#overScore').textContent = 0;
-    // 差距感：没破纪录时告诉你还差多少，破了就告诉你超出多少
-    const gap = $('#overGap');
-    if (isRecord && best > 0) gap.innerHTML = `比旧纪录多 <strong>${state.score - best}</strong> 分`;
-    else if (!isRecord && best > 0) gap.innerHTML = `距最高分还差 <strong>${best - state.score}</strong> 分`;
-    else gap.textContent = '';
-    $('#overBest').textContent = Math.max(best, state.score);
-    $('#overLength').textContent = state.snake.length;
-    $('#overLevel').textContent = state.level;
-    $('#overTime').textContent = formatTime(state.playTime);
+    $('#overGap').innerHTML = gapText(best, isRecord);
+    updateHud();
     updatePauseButton();
 
     const token = ++roundToken;
@@ -452,6 +459,21 @@
       showScreen('over');
       countUp($('#overScore'), state.score, token);
     }, won ? 400 : 800);
+  }
+
+  // 差距感：先和对方的纪录比，对方还没纪录时和自己比
+  function gapText(myBest, isRecord) {
+    const s = state.score;
+    const n = (v) => `<strong>${v}</strong>`;
+    const rival = PLAYERS.find((p) => p.id !== settings.player);
+    const rivalBest = rival ? getBest(rival.id) : 0;
+    if (rivalBest > 0) {
+      if (s > rivalBest) return `超过${rival.name}的纪录 ${n(s - rivalBest)} 分`;
+      if (s === rivalBest) return `和${rival.name}打平了`;
+      return `距离${rival.name}的纪录还差 ${n(rivalBest - s)} 分`;
+    }
+    if (myBest > 0) return isRecord ? `比旧纪录多 ${n(s - myBest)} 分` : `距最高分还差 ${n(myBest - s)} 分`;
+    return '';
   }
 
   // ================= 流程控制 =================
@@ -547,17 +569,39 @@
     if (state && state.phase === 'over') {
       $('#overTitle').textContent = state.won ? t.text.win : t.text.over;
     }
-    document.querySelectorAll('input[name="theme"]').forEach((el) => {
-      el.checked = el.value === t.id;
-    });
     buildBackground();
   }
 
   function setTheme(id) {
-    if (!THEMES.byId[id] || id === settings.theme) return;
-    settings.theme = id;
+    if (!THEMES.byId[id] || id === settings.themes[settings.player]) return;
+    settings.themes[settings.player] = id;
     saveSettings();
     applyTheme();
+    syncMenu();
+    Sound.play('click');
+  }
+
+  // ================= 玩家 =================
+  function buildPlayers() {
+    $('#players').innerHTML = PLAYERS.map((p) => `
+      <label class="player">
+        <input type="radio" name="player" value="${p.id}">
+        <span class="player-card">
+          <span class="avatar" data-avatar="${p.id}">${p.name}<i class="crown" data-crown="${p.id}" hidden>👑</i></span>
+          <span class="player-info"><span class="player-label">最高</span><b data-best="${p.id}">0</b></span>
+        </span>
+      </label>`).join('');
+    $('#hudMeta').innerHTML = PLAYERS.map((p) =>
+      `<div data-player="${p.id}"><dt>${p.name}</dt><dd data-hud-best="${p.id}">0</dd></div>`).join('');
+  }
+
+  function setPlayer(id) {
+    if (!PLAYER_BY_ID[id] || id === settings.player) return;
+    settings.player = id;
+    saveSettings();
+    applyTheme();
+    syncMenu();
+    updateHud();
     Sound.play('click');
   }
 
@@ -575,11 +619,16 @@
   }
 
   function updateHud() {
-    const best = Math.max(getBest(), state.score);
     hud.score.textContent = state.score;
-    hud.best.textContent = best;
-    hud.level.textContent = state.level;
-    $('#menuBest').textContent = getBest();
+    const bests = PLAYERS.map((p) => getBest(p.id));
+    const top = Math.max(...bests);
+    PLAYERS.forEach((p, i) => {
+      // 自己这一行实时显示，超过纪录的那一刻就能看到
+      const live = p.id === settings.player && state.phase !== 'menu' ? Math.max(bests[i], state.score) : bests[i];
+      $(`[data-hud-best="${p.id}"]`).textContent = live;
+      $(`[data-best="${p.id}"]`).textContent = bests[i];
+      $(`[data-crown="${p.id}"]`).hidden = !(top > 0 && bests[i] === top && bests.filter((b) => b === top).length === 1);
+    });
   }
 
   function updatePauseButton() {
@@ -627,11 +676,6 @@
     requestAnimationFrame(tick);
   }
 
-  function formatTime(ms) {
-    const s = Math.floor(ms / 1000);
-    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-  }
-
   function syncMenu() {
     document.querySelectorAll('input[name="difficulty"]').forEach((el) => {
       el.checked = el.value === settings.difficulty;
@@ -640,6 +684,13 @@
       el.checked = el.value === settings.mode;
     });
     $('#modeHint').textContent = MODE_HINTS[settings.mode];
+    const label = (name) => $(`input[name="${name}"][value="${settings[name]}"] + span`).textContent;
+    $('#comboLabel').textContent = `${label('difficulty')} · ${label('mode')}`;
+    PLAYERS.forEach((p) => {
+      $(`input[name="player"][value="${p.id}"]`).checked = p.id === settings.player;
+      $(`[data-avatar="${p.id}"]`).dataset.theme = settings.themes[p.id];
+      $(`[data-player="${p.id}"]`).classList.toggle('is-me', p.id === settings.player);
+    });
   }
 
   // ================= 菜单演示 =================
@@ -1043,7 +1094,6 @@
     if (state.phase === 'playing') {
       state.acc += dt;
       state.elapsed += dt;
-      state.playTime += dt;
       runTimers();
       while (state.acc >= state.interval && state.phase === 'playing') {
         state.acc -= state.interval;
@@ -1106,7 +1156,7 @@
       case 'KeyT': {
         // 循环切换主题
         const ids = THEMES.list.map((t) => t.id);
-        setTheme(ids[(ids.indexOf(settings.theme) + 1) % ids.length]);
+        setTheme(ids[(ids.indexOf(settings.themes[settings.player]) + 1) % ids.length]);
         break;
       }
     }
@@ -1167,11 +1217,8 @@
     });
   });
 
-  document.querySelectorAll('input[name="theme"]').forEach((input) => {
-    input.addEventListener('change', () => {
-      setTheme(input.value);
-      input.blur(); // 避免之后的方向键改变选中的主题
-    });
+  document.querySelectorAll('input[name="player"]').forEach((input) => {
+    input.addEventListener('change', () => setPlayer(input.value));
   });
 
   // 切到后台自动暂停
