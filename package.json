@@ -1,10 +1,10 @@
 {
   "name": "snake-game",
-  "version": "1.0.0",
-  "description": "A simple snake game implemented in JavaScript.",
-  "main": "src/scripts/app.js",
+  "version": "2.0.0",
+  "description": "A polished snake game built with vanilla HTML, CSS and JavaScript.",
+  "main": "index.html",
   "scripts": {
-    "start": "live-server src"
+    "start": "live-server ."
   },
   "keywords": [
     "snake",

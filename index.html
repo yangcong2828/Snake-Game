@@ -1,30 +1,126 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="neon">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>贪吃蛇游戏</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
+  <title>贪吃蛇 · Snake</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f14'/%3E%3Cpath d='M7 22h11v-9h6' stroke='%235ef0b0' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='7' r='3' fill='%23ff6b6b'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./src/styles/style.css">
 </head>
 <body>
-  <h1>贪吃蛇游戏</h1>
-  <div class="controls">
-    <button id="restartButton" onclick="restartGame()">重新开始</button>
-    <button id="pauseButton" onclick="togglePause()">暂停</button>
-  </div>
-  <div class="game-board" id="gameBoard"></div>
-  <!-- 虚拟方向键 -->
-<div class="dpad">
-  <button class="dpad-btn" data-dir="up">▲</button>
-  <button class="dpad-btn" data-dir="left">◀</button>
-  <button class="dpad-btn" data-dir="right">▶</button>
-  <button class="dpad-btn" data-dir="down">▼</button>
-</div>
-  <!-- 添加署名 -->
-  <div class="footer">
-    <p>制作人：景电伟</p>
-  </div>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>贪吃蛇</h1>
+          <p class="brand-sub" id="brandSub">SNAKE</p>
+        </div>
+      </div>
+      <dl class="hud">
+        <div class="hud-item"><dt>得分</dt><dd id="hudScore">0</dd></div>
+        <div class="hud-item"><dt>最高</dt><dd id="hudBest">0</dd></div>
+        <div class="hud-item"><dt>等级</dt><dd id="hudLevel">1</dd></div>
+        <div class="hud-item"><dt>长度</dt><dd id="hudLength">3</dd></div>
+      </dl>
+    </header>
 
+    <div class="stage" id="stage">
+      <canvas id="board" role="img" aria-label="贪吃蛇游戏画面"></canvas>
+
+      <div class="overlay" id="overlay" data-screen="menu">
+        <!-- 主菜单 -->
+        <section class="panel" data-panel="menu" aria-label="开始菜单">
+          <h2 class="panel-title" id="menuTitle">准备好了吗？</h2>
+
+          <fieldset class="option-group">
+            <legend>难度</legend>
+            <div class="segmented">
+              <label><input type="radio" name="difficulty" value="easy"><span>轻松</span></label>
+              <label><input type="radio" name="difficulty" value="normal"><span>标准</span></label>
+              <label><input type="radio" name="difficulty" value="hard"><span>困难</span></label>
+            </div>
+          </fieldset>
+
+          <fieldset class="option-group">
+            <legend>模式</legend>
+            <div class="segmented">
+              <label><input type="radio" name="mode" value="classic"><span>经典</span></label>
+              <label><input type="radio" name="mode" value="wrap"><span>穿墙</span></label>
+              <label><input type="radio" name="mode" value="maze"><span>障碍</span></label>
+            </div>
+            <p class="option-hint" id="modeHint"></p>
+          </fieldset>
+
+          <button class="btn btn-primary" id="startBtn" data-action="start">开始游戏</button>
+          <p class="panel-foot">本模式最高分 <strong id="menuBest">0</strong></p>
+        </section>
+
+        <!-- 暂停 -->
+        <section class="panel" data-panel="paused" aria-label="已暂停">
+          <h2 class="panel-title" id="pausedTitle">已暂停</h2>
+          <button class="btn btn-primary" data-action="resume">继续游戏</button>
+          <div class="btn-row">
+            <button class="btn btn-ghost" data-action="restart">重新开始</button>
+            <button class="btn btn-ghost" data-action="menu">返回菜单</button>
+          </div>
+        </section>
+
+        <!-- 结算 -->
+        <section class="panel" data-panel="over" aria-label="游戏结束">
+          <span class="badge" id="overRecord" hidden>🏆 新纪录</span>
+          <h2 class="panel-title" id="overTitle">游戏结束</h2>
+          <p class="final-score" id="overScore">0</p>
+          <dl class="stats">
+            <div><dt>最高分</dt><dd id="overBest">0</dd></div>
+            <div><dt>长度</dt><dd id="overLength">0</dd></div>
+            <div><dt>等级</dt><dd id="overLevel">1</dd></div>
+            <div><dt>用时</dt><dd id="overTime">00:00</dd></div>
+          </dl>
+          <button class="btn btn-primary" data-action="restart">再来一局</button>
+          <button class="btn btn-ghost" data-action="menu">更换设置</button>
+        </section>
+      </div>
+
+      <div class="toast" id="toast" aria-live="polite"></div>
+    </div>
+
+    <nav class="toolbar" aria-label="游戏控制">
+      <button class="icon-btn" id="pauseBtn" data-action="toggle-pause" aria-label="暂停" title="暂停 (空格)">
+        <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg>
+        <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.2-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+      </button>
+      <button class="icon-btn" data-action="restart" aria-label="重新开始" title="重新开始 (R)">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
+      </button>
+      <button class="icon-btn" id="soundBtn" data-action="toggle-sound" aria-label="声音" aria-pressed="true" title="声音 (M)">
+        <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" fill="currentColor"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+        <svg class="icon-mute" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>
+      </button>
+      <div class="segmented theme-switch" role="radiogroup" aria-label="主题">
+        <label title="霓虹主题 (T 切换)"><input type="radio" name="theme" value="neon"><span><i class="swatch swatch-neon"></i>霓虹</span></label>
+        <label title="星际主题 (T 切换)"><input type="radio" name="theme" value="scifi"><span><i class="swatch swatch-scifi"></i>星际</span></label>
+        <label title="甜心主题 (T 切换)"><input type="radio" name="theme" value="sweet"><span><i class="swatch swatch-sweet"></i>甜心</span></label>
+      </div>
+    </nav>
+
+    <!-- 触屏方向键 -->
+    <div class="dpad" aria-label="方向键">
+      <button class="dpad-btn" data-dir="up" aria-label="上">▲</button>
+      <button class="dpad-btn" data-dir="left" aria-label="左">◀</button>
+      <button class="dpad-btn" data-dir="right" aria-label="右">▶</button>
+      <button class="dpad-btn" data-dir="down" aria-label="下">▼</button>
+    </div>
+
+    <p class="keys">
+      <kbd>↑↓←→</kbd> / <kbd>WASD</kbd> 移动 · <kbd>空格</kbd> 暂停 · <kbd>R</kbd> 重开 · <kbd>M</kbd> 静音 · <kbd>T</kbd> 主题
+    </p>
+
+    <footer class="footer">制作人：景电伟</footer>
+  </main>
+
+  <script src="./src/scripts/themes.js"></script>
   <script src="./src/scripts/app.js"></script>
 </body>
 </html>
