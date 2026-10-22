@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0f14">
+  <meta name="theme-color" content="#06050c">
   <title>贪吃蛇 · Snake</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0f14'/%3E%3Cpath d='M7 22h11v-9h6' stroke='%235ef0b0' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='7' r='3' fill='%23ff6b6b'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306050c'/%3E%3Cpath d='M7 22h11v-9h6' stroke='%232ef2ff' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='7' r='3' fill='%23ff2a6d'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./src/styles/style.css">
 </head>
 <body>
-  <main class="app">
+  <main class="app" id="app" data-screen="menu">
     <header class="topbar">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
@@ -18,12 +18,14 @@
           <p class="brand-sub" id="brandSub">SNAKE</p>
         </div>
       </div>
-      <dl class="hud">
-        <div class="hud-item"><dt>得分</dt><dd id="hudScore">0</dd></div>
-        <div class="hud-item"><dt>最高</dt><dd id="hudBest">0</dd></div>
-        <div class="hud-item"><dt>等级</dt><dd id="hudLevel">1</dd></div>
-        <div class="hud-item"><dt>长度</dt><dd id="hudLength">3</dd></div>
-      </dl>
+      <div class="hud">
+        <!-- 两人各自的纪录，由 app.js 按 PLAYERS 生成 -->
+        <dl class="hud-meta" id="hudMeta" aria-label="最高分"></dl>
+        <div class="hud-score">
+          <span class="hud-score-label">得分</span>
+          <span class="hud-score-value" id="hudScore">0</span>
+        </div>
+      </div>
     </header>
 
     <div class="stage" id="stage">
@@ -34,27 +36,35 @@
         <section class="panel" data-panel="menu" aria-label="开始菜单">
           <h2 class="panel-title" id="menuTitle">准备好了吗？</h2>
 
-          <fieldset class="option-group">
-            <legend>难度</legend>
-            <div class="segmented">
-              <label><input type="radio" name="difficulty" value="easy"><span>轻松</span></label>
-              <label><input type="radio" name="difficulty" value="normal"><span>标准</span></label>
-              <label><input type="radio" name="difficulty" value="hard"><span>困难</span></label>
-            </div>
-          </fieldset>
+          <!-- 谁来玩：也是两人的比分牌，由 app.js 按 PLAYERS 生成 -->
+          <div class="players" id="players" role="radiogroup" aria-label="谁来玩"></div>
 
-          <fieldset class="option-group">
-            <legend>模式</legend>
-            <div class="segmented">
-              <label><input type="radio" name="mode" value="classic"><span>经典</span></label>
-              <label><input type="radio" name="mode" value="wrap"><span>穿墙</span></label>
-              <label><input type="radio" name="mode" value="maze"><span>障碍</span></label>
+          <details class="more">
+            <summary><span class="option-label">玩法</span><span class="combo" id="comboLabel"></span></summary>
+            <div class="options">
+              <span class="option-label" id="lblDifficulty">难度</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="lblDifficulty">
+                <label><input type="radio" name="difficulty" value="easy"><span>轻松</span></label>
+                <label><input type="radio" name="difficulty" value="normal"><span>标准</span></label>
+                <label><input type="radio" name="difficulty" value="hard"><span>困难</span></label>
+              </div>
+
+              <span class="option-label" id="lblMode">模式</span>
+              <div class="segmented" role="radiogroup" aria-labelledby="lblMode">
+                <label><input type="radio" name="mode" value="classic"><span>经典</span></label>
+                <label><input type="radio" name="mode" value="wrap"><span>穿墙</span></label>
+                <label><input type="radio" name="mode" value="maze"><span>障碍</span></label>
+              </div>
+              <p class="option-hint" id="modeHint"></p>
             </div>
-            <p class="option-hint" id="modeHint"></p>
-          </fieldset>
+          </details>
 
           <button class="btn btn-primary" id="startBtn" data-action="start">开始游戏</button>
-          <p class="panel-foot">本模式最高分 <strong id="menuBest">0</strong></p>
+          <div class="link-row">
+            <button class="link-btn" data-action="send-report">发战报</button>
+            <span aria-hidden="true">·</span>
+            <button class="link-btn" data-action="receive-report">收战报</button>
+          </div>
         </section>
 
         <!-- 暂停 -->
@@ -72,14 +82,21 @@
           <span class="badge" id="overRecord" hidden>🏆 新纪录</span>
           <h2 class="panel-title" id="overTitle">游戏结束</h2>
           <p class="final-score" id="overScore">0</p>
-          <dl class="stats">
-            <div><dt>最高分</dt><dd id="overBest">0</dd></div>
-            <div><dt>长度</dt><dd id="overLength">0</dd></div>
-            <div><dt>等级</dt><dd id="overLevel">1</dd></div>
-            <div><dt>用时</dt><dd id="overTime">00:00</dd></div>
-          </dl>
+          <p class="over-gap" id="overGap"></p>
           <button class="btn btn-primary" data-action="restart">再来一局</button>
-          <button class="btn btn-ghost" data-action="menu">更换设置</button>
+          <div class="btn-row">
+            <button class="btn btn-ghost" data-action="send-report">发战报</button>
+            <button class="btn btn-ghost" data-action="menu">换人 / 玩法</button>
+          </div>
+        </section>
+
+        <!-- 战报：经微信在两部手机之间同步纪录 -->
+        <section class="panel" data-panel="sync" aria-label="战报">
+          <h2 class="panel-title" id="syncTitle">收战报</h2>
+          <p class="sync-hint" id="syncHint"></p>
+          <textarea class="sync-text" id="syncText" rows="5" spellcheck="false"></textarea>
+          <button class="btn btn-primary" id="syncBtn" data-action="sync-confirm">同步</button>
+          <button class="btn btn-ghost" data-action="sync-back">返回</button>
         </section>
       </div>
 
@@ -98,19 +115,14 @@
         <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" fill="currentColor"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>
         <svg class="icon-mute" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>
       </button>
-      <div class="segmented theme-switch" role="radiogroup" aria-label="主题">
-        <label title="霓虹主题 (T 切换)"><input type="radio" name="theme" value="neon"><span><i class="swatch swatch-neon"></i>霓虹</span></label>
-        <label title="星际主题 (T 切换)"><input type="radio" name="theme" value="scifi"><span><i class="swatch swatch-scifi"></i>星际</span></label>
-        <label title="甜心主题 (T 切换)"><input type="radio" name="theme" value="sweet"><span><i class="swatch swatch-sweet"></i>甜心</span></label>
-      </div>
     </nav>
 
     <!-- 触屏方向键 -->
     <div class="dpad" aria-label="方向键">
-      <button class="dpad-btn" data-dir="up" aria-label="上">▲</button>
-      <button class="dpad-btn" data-dir="left" aria-label="左">◀</button>
-      <button class="dpad-btn" data-dir="right" aria-label="右">▶</button>
-      <button class="dpad-btn" data-dir="down" aria-label="下">▼</button>
+      <button class="dpad-btn" data-dir="up" aria-label="上"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+      <button class="dpad-btn" data-dir="left" aria-label="左"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <button class="dpad-btn" data-dir="right" aria-label="右"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="dpad-btn" data-dir="down" aria-label="下"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
     </div>
 
     <p class="keys">

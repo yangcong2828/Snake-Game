@@ -23,6 +23,13 @@
     maze: '避开障碍，每升一级新增障碍',
   };
 
+  // 两位玩家：各记各的分，主题跟着人走
+  const PLAYERS = [
+    { id: 'jing', name: '景', theme: 'scifi' },
+    { id: 'na', name: '娜', theme: 'sweet' },
+  ];
+  const PLAYER_BY_ID = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
+
   const DIRS = {
     up: { x: 0, y: -1 },
     down: { x: 0, y: 1 },
@@ -37,16 +44,13 @@
   const $ = (sel) => document.querySelector(sel);
   const canvas = $('#board');
   const ctx = canvas.getContext('2d');
+  const app = $('#app');
   const overlay = $('#overlay');
   const toastEl = $('#toast');
   const pauseBtn = $('#pauseBtn');
   const soundBtn = $('#soundBtn');
-  const hud = {
-    score: $('#hudScore'),
-    best: $('#hudBest'),
-    level: $('#hudLevel'),
-    length: $('#hudLength'),
-  };
+  const hud = { score: $('#hudScore') };
+  buildPlayers();
 
   // ================= 本地存储 =================
   const STORAGE_KEY = 'snake-game:v1';
@@ -55,7 +59,13 @@
   function loadStore() {
     try {
       const data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-      return { best: data.best || {}, settings: data.settings || {} };
+      const best = {};
+      Object.entries(data.best || {}).forEach(([k, v]) => {
+        // 旧版纪录没有玩家维度，归到第一位玩家名下
+        const full = k.split('.').length === 2 ? `${PLAYERS[0].id}.${k}` : k;
+        best[full] = Math.max(best[full] || 0, v);
+      });
+      return { best, settings: data.settings || {} };
     } catch {
       return { best: {}, settings: {} };
     }
@@ -72,7 +82,12 @@
   const settings = {
     difficulty: DIFFICULTIES[store.settings.difficulty] ? store.settings.difficulty : 'normal',
     mode: MODE_HINTS[store.settings.mode] ? store.settings.mode : 'classic',
-    theme: THEMES.byId[store.settings.theme] ? store.settings.theme : 'neon',
+    player: PLAYER_BY_ID[store.settings.player] ? store.settings.player : PLAYERS[0].id,
+    // 每人一套主题，按 T 换的是当前玩家自己的
+    themes: Object.fromEntries(PLAYERS.map((p) => {
+      const saved = (store.settings.themes || {})[p.id];
+      return [p.id, THEMES.byId[saved] ? saved : p.theme];
+    })),
     muted: !!store.settings.muted,
   };
 
@@ -81,9 +96,9 @@
     saveStore();
   }
 
-  const bestKey = () => `${settings.mode}.${settings.difficulty}`;
-  const getBest = () => store.best[bestKey()] || 0;
-  const theme = () => THEMES.byId[settings.theme];
+  const bestKey = (player = settings.player) => `${player}.${settings.mode}.${settings.difficulty}`;
+  const getBest = (player) => store.best[bestKey(player)] || 0;
+  const theme = () => THEMES.byId[settings.themes[settings.player]];
 
   // ================= 音效（WebAudio 合成，无需音频文件）=================
   const Sound = (() => {
@@ -189,7 +204,6 @@
       interval: DIFFICULTIES[settings.difficulty].start,
       acc: 0,
       elapsed: 0,                // 游戏时间（毫秒），驱动定时器与奖励倒计时
-      playTime: 0,
       countdown: 0,
       grace: false,              // 即将撞上时多给一拍转向机会
       timers: [],                // 按游戏时间延后执行的回调（暂停时冻结）
@@ -411,7 +425,7 @@
     if (!reducedMotion) shake = theme().shake;
     flash = 1;
     burst(state.snake[0], 'death', 28);
-    ring(state.snake[0], 'rgba(255, 170, 60, 0.9)', 4);
+    ring(state.snake[0], theme().colors.deathRing || 'rgba(255, 170, 60, 0.9)', 4);
     Sound.play('die');
     finishRound(false);
   }
@@ -434,17 +448,182 @@
     }
     $('#overTitle').textContent = won ? theme().text.win : theme().text.over;
     $('#overRecord').hidden = !isRecord;
-    $('#overScore').textContent = state.score;
-    $('#overBest').textContent = Math.max(best, state.score);
-    $('#overLength').textContent = state.snake.length;
-    $('#overLevel').textContent = state.level;
-    $('#overTime').textContent = formatTime(state.playTime);
+    $('#overScore').textContent = 0;
+    $('#overGap').innerHTML = gapText(best, isRecord);
+    updateHud();
     updatePauseButton();
 
     const token = ++roundToken;
     setTimeout(() => {
-      if (token === roundToken) showScreen('over');
+      if (token !== roundToken) return;
+      showScreen('over');
+      countUp($('#overScore'), state.score, token);
     }, won ? 400 : 800);
+  }
+
+  // 差距感：先和对方的纪录比，对方还没纪录时和自己比
+  function gapText(myBest, isRecord) {
+    const s = state.score;
+    const n = (v) => `<strong>${v}</strong>`;
+    const rival = PLAYERS.find((p) => p.id !== settings.player);
+    const rivalBest = rival ? getBest(rival.id) : 0;
+    if (rivalBest > 0) {
+      if (s > rivalBest) return `超过${rival.name}的纪录 ${n(s - rivalBest)} 分`;
+      if (s === rivalBest) return `和${rival.name}打平了`;
+      return `距离${rival.name}的纪录还差 ${n(rivalBest - s)} 分`;
+    }
+    if (myBest > 0) return isRecord ? `比旧纪录多 ${n(s - myBest)} 分` : `距最高分还差 ${n(myBest - s)} 分`;
+    return '';
+  }
+
+  // ================= 战报（微信同步） =================
+  // 不用服务器：把两人的纪录编成一段战报码，经微信发给对方，对方粘贴后逐条取较高分合并。
+  // 合并只增不减，重复粘贴或互相发来发去都不会出错。
+  const MODE_CODES = { classic: 'c', wrap: 'w', maze: 'm' };
+  const DIFF_CODES = { easy: 'e', normal: 'n', hard: 'h' };
+  const invert = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [v, k]));
+  const MODE_OF = invert(MODE_CODES);
+  const DIFF_OF = invert(DIFF_CODES);
+
+  // 防止微信里复制漏了几个字导致导入错分
+  function checksum(str) {
+    let h = 7;
+    for (const ch of str) h = (h * 31 + ch.charCodeAt(0)) % 1679616;
+    return h.toString(36).padStart(4, '0');
+  }
+
+  function encodeRecords() {
+    const parts = [];
+    PLAYERS.forEach((p, i) => {
+      Object.keys(MODE_CODES).forEach((m) => Object.keys(DIFF_CODES).forEach((d) => {
+        const v = store.best[`${p.id}.${m}.${d}`];
+        if (v > 0) parts.push(`${i}${MODE_CODES[m]}${DIFF_CODES[d]}${v.toString(36)}`);
+      }));
+    });
+    const body = parts.join('_');
+    return `SNK1.${body}.${checksum(body)}`;
+  }
+
+  function decodeRecords(text) {
+    const match = /SNK1\.([0-9a-z_]*)\.([0-9a-z]{4})/.exec(text || '');
+    if (!match || checksum(match[1]) !== match[2]) return null;
+    const records = [];
+    for (const part of match[1].split('_').filter(Boolean)) {
+      const m = /^(\d)([a-z])([a-z])([0-9a-z]+)$/.exec(part);
+      if (!m || !PLAYERS[m[1]] || !MODE_OF[m[2]] || !DIFF_OF[m[3]]) return null;
+      records.push({ key: `${PLAYERS[m[1]].id}.${MODE_OF[m[2]]}.${DIFF_OF[m[3]]}`, score: parseInt(m[4], 36) });
+    }
+    return records;
+  }
+
+  function importRecords(text) {
+    const records = decodeRecords(text);
+    if (!records) return false;
+    let changed = 0;
+    records.forEach(({ key: k, score }) => {
+      if (score > (store.best[k] || 0)) {
+        store.best[k] = score;
+        changed++;
+      }
+    });
+    if (changed) saveStore();
+    updateHud();
+    toast(changed ? `已同步 ${changed} 条新纪录` : '比分已经是最新的');
+    Sound.play(changed ? 'bonus' : 'click');
+    return true;
+  }
+
+  function reportText() {
+    const me = PLAYER_BY_ID[settings.player];
+    const combo = $('#comboLabel').textContent;
+    const scores = PLAYERS.map((p) => `${p.name} ${getBest(p.id)}`).join(' · ');
+    const lines = [];
+    if (state.phase === 'over' && state.score > 0) {
+      const gap = $('#overGap').textContent;
+      lines.push(`🐍 ${me.name}刚在「${combo}」拿下 ${state.score} 分${gap ? `，${gap}` : ''}`);
+    }
+    lines.push(`📊 「${combo}」比分：${scores}`);
+    lines.push('复制这整段话，打开贪吃蛇点「收战报」就能同步');
+    lines.push(encodeRecords());
+    return lines.join('\n');
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // file:// 或旧浏览器没有剪贴板接口时，退回 execCommand
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
+    ta.remove();
+    return ok;
+  }
+
+  let syncReturn = 'menu';
+  function openSync(mode, text = '') {
+    syncReturn = overlay.dataset.screen || 'menu';
+    const rival = PLAYERS.find((p) => p.id !== settings.player);
+    const panel = $('[data-panel="sync"]');
+    panel.dataset.mode = mode;
+    $('#syncTitle').textContent = mode === 'send' ? '发战报' : '收战报';
+    $('#syncHint').textContent = mode === 'send'
+      ? `长按全选复制，发到微信给${rival ? rival.name : 'TA'}`
+      : '把微信里收到的战报整段粘贴到这里';
+    $('#syncBtn').textContent = mode === 'send' ? '复制' : '同步';
+    const area = $('#syncText');
+    area.value = text;
+    area.readOnly = mode === 'send';
+    area.placeholder = mode === 'send' ? '' : '🐍 …… SNK1.……';
+    showScreen('sync');
+    requestAnimationFrame(() => {
+      area.focus({ preventScroll: true });
+      if (mode === 'send') area.select();
+    });
+  }
+
+  async function sendReport() {
+    const text = reportText();
+    const rival = PLAYERS.find((p) => p.id !== settings.player);
+    if (await copyText(text)) {
+      toast(`战报已复制，去微信发给${rival ? rival.name : 'TA'}`);
+      Sound.play('click');
+    } else {
+      openSync('send', text);
+    }
+  }
+
+  async function receiveReport() {
+    // 先试着直接读剪贴板，读不到再让人手动粘贴
+    try {
+      const text = await navigator.clipboard.readText();
+      if (decodeRecords(text) && importRecords(text)) return;
+    } catch {
+      // 没有剪贴板权限，走手动粘贴
+    }
+    openSync('receive');
+  }
+
+  async function syncConfirm() {
+    const area = $('#syncText');
+    if ($('[data-panel="sync"]').dataset.mode === 'send') {
+      area.select();
+      if (await copyText(area.value)) toast('已复制');
+      return;
+    }
+    if (importRecords(area.value)) showScreen(syncReturn);
+    else toast('没认出战报，请复制完整的一段话');
   }
 
   // ================= 流程控制 =================
@@ -493,8 +672,9 @@
     else if (state.phase === 'paused') resume();
   }
 
+  // 游戏中重开需要确认两次，键盘与工具栏按钮一致
   let restartArmedAt = -Infinity;
-  function requestRestart() {
+  function requestRestart(fromButton) {
     if (!isActive()) {
       startGame();
       return;
@@ -505,7 +685,7 @@
       startGame();
     } else {
       restartArmedAt = now;
-      toast('再按一次 R 重新开始');
+      toast(fromButton ? '再点一次重新开始' : '再按一次 R 重新开始');
     }
   }
 
@@ -539,39 +719,66 @@
     if (state && state.phase === 'over') {
       $('#overTitle').textContent = state.won ? t.text.win : t.text.over;
     }
-    document.querySelectorAll('input[name="theme"]').forEach((el) => {
-      el.checked = el.value === t.id;
-    });
     buildBackground();
   }
 
   function setTheme(id) {
-    if (!THEMES.byId[id] || id === settings.theme) return;
-    settings.theme = id;
+    if (!THEMES.byId[id] || id === settings.themes[settings.player]) return;
+    settings.themes[settings.player] = id;
     saveSettings();
     applyTheme();
+    syncMenu();
+    Sound.play('click');
+  }
+
+  // ================= 玩家 =================
+  function buildPlayers() {
+    $('#players').innerHTML = PLAYERS.map((p) => `
+      <label class="player">
+        <input type="radio" name="player" value="${p.id}">
+        <span class="player-card">
+          <span class="avatar" data-avatar="${p.id}">${p.name}<i class="crown" data-crown="${p.id}" hidden>👑</i></span>
+          <span class="player-info"><span class="player-label">最高</span><b data-best="${p.id}">0</b></span>
+        </span>
+      </label>`).join('');
+    $('#hudMeta').innerHTML = PLAYERS.map((p) =>
+      `<div data-player="${p.id}"><dt>${p.name}</dt><dd data-hud-best="${p.id}">0</dd></div>`).join('');
+  }
+
+  function setPlayer(id) {
+    if (!PLAYER_BY_ID[id] || id === settings.player) return;
+    settings.player = id;
+    saveSettings();
+    applyTheme();
+    syncMenu();
+    updateHud();
     Sound.play('click');
   }
 
   // ================= 界面 =================
   function showScreen(name) {
     overlay.dataset.screen = name;
+    app.dataset.screen = name || 'playing';
     if (name) {
-      // 让 Enter/空格直接作用于主按钮
+      // 让 Enter/空格直接作用于主按钮（程序聚焦不画焦点框）
       const primary = overlay.querySelector(`[data-panel="${name}"] .btn-primary`);
-      requestAnimationFrame(() => primary && primary.focus({ preventScroll: true }));
+      requestAnimationFrame(() => primary && primary.focus({ preventScroll: true, focusVisible: false }));
     } else if (document.activeElement && overlay.contains(document.activeElement)) {
       document.activeElement.blur();
     }
   }
 
   function updateHud() {
-    const best = Math.max(getBest(), state.score);
     hud.score.textContent = state.score;
-    hud.best.textContent = best;
-    hud.level.textContent = state.level;
-    hud.length.textContent = state.snake.length;
-    $('#menuBest').textContent = getBest();
+    const bests = PLAYERS.map((p) => getBest(p.id));
+    const top = Math.max(...bests);
+    PLAYERS.forEach((p, i) => {
+      // 自己这一行实时显示，超过纪录的那一刻就能看到
+      const live = p.id === settings.player && state.phase !== 'menu' ? Math.max(bests[i], state.score) : bests[i];
+      $(`[data-hud-best="${p.id}"]`).textContent = live;
+      $(`[data-best="${p.id}"]`).textContent = bests[i];
+      $(`[data-crown="${p.id}"]`).hidden = !(top > 0 && bests[i] === top && bests.filter((b) => b === top).length === 1);
+    });
   }
 
   function updatePauseButton() {
@@ -602,9 +809,21 @@
     toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1700);
   }
 
-  function formatTime(ms) {
-    const s = Math.floor(ms / 1000);
-    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  // 结算分数从 0 滚动到最终值
+  function countUp(el, to, token) {
+    if (reducedMotion || to <= 0) {
+      el.textContent = to;
+      return;
+    }
+    const start = performance.now();
+    const dur = Math.min(900, 300 + to * 2);
+    const tick = (now) => {
+      if (token !== roundToken) return;
+      const p = Math.min(1, (now - start) / dur);
+      el.textContent = Math.round(to * (1 - Math.pow(1 - p, 3)));
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
 
   function syncMenu() {
@@ -615,6 +834,98 @@
       el.checked = el.value === settings.mode;
     });
     $('#modeHint').textContent = MODE_HINTS[settings.mode];
+    const label = (name) => $(`input[name="${name}"][value="${settings[name]}"] + span`).textContent;
+    $('#comboLabel').textContent = `${label('difficulty')} · ${label('mode')}`;
+    PLAYERS.forEach((p) => {
+      $(`input[name="player"][value="${p.id}"]`).checked = p.id === settings.player;
+      $(`[data-avatar="${p.id}"]`).dataset.theme = settings.themes[p.id];
+      $(`[data-player="${p.id}"]`).classList.toggle('is-me', p.id === settings.player);
+    });
+  }
+
+  // ================= 菜单演示 =================
+  // 菜单背后自己游走的蛇：只是画面，不计分、不出声
+  const DEMO_MAX = 16;
+
+  function moveCell(p, d) {
+    let x = p.x + d.x;
+    let y = p.y + d.y;
+    if (settings.mode === 'wrap') {
+      x = (x + COLS) % COLS;
+      y = (y + ROWS) % ROWS;
+    } else if (x < 0 || x >= COLS || y < 0 || y >= ROWS) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  // 从 start 出发能走到的格子数，用来避免钻进死胡同
+  function reachable(start, blocked) {
+    const seen = new Set([key(start)]);
+    const stack = [start];
+    while (stack.length) {
+      const p = stack.pop();
+      for (const d of Object.values(DIRS)) {
+        const n = moveCell(p, d);
+        if (!n || blocked.has(key(n)) || seen.has(key(n))) continue;
+        seen.add(key(n));
+        stack.push(n);
+      }
+    }
+    return seen.size;
+  }
+
+  // 广度优先找食物的第一步
+  function pathStep(head, blocked) {
+    if (!state.food) return null;
+    const from = new Map([[key(head), null]]);
+    const queue = [head];
+    while (queue.length) {
+      const p = queue.shift();
+      if (same(p, state.food)) {
+        let k = key(p);
+        while (from.get(k) && from.get(k).prev !== key(head)) k = from.get(k).prev;
+        return from.get(k) && from.get(k).dir;
+      }
+      for (const d of Object.values(DIRS)) {
+        const n = moveCell(p, d);
+        if (!n || blocked.has(key(n)) || from.has(key(n))) continue;
+        from.set(key(n), { prev: key(p), dir: d });
+        queue.push(n);
+      }
+    }
+    return null;
+  }
+
+  function demoStep() {
+    const head = state.snake[0];
+    const blocked = new Set(state.walls);
+    state.snake.slice(0, -1).forEach((p) => blocked.add(key(p)));
+    const options = Object.values(DIRS)
+      .filter((d) => !(d.x === -state.dir.x && d.y === -state.dir.y))
+      .map((d) => ({ d, cell: moveCell(head, d) }))
+      .filter((o) => o.cell && !blocked.has(key(o.cell)))
+      .map((o) => ({ ...o, room: reachable(o.cell, blocked) }));
+    if (!options.length) {
+      newState();
+      return;
+    }
+    const best = pathStep(head, blocked);
+    const safe = options.find((o) => o.d === best && o.room >= state.snake.length);
+    const pick = safe || options.sort((a, b) => b.room - a.room)[0];
+
+    state.dir = pick.d;
+    state.prev = state.snake.slice();
+    state.snake.unshift(pick.cell);
+    if (same(pick.cell, state.food)) {
+      burst(pick.cell, 'eat', 10);
+      if (state.snake.length > DEMO_MAX) state.snake.pop();
+      state.food = null;
+      state.food = spawnItem();
+      if (!state.food) newState();
+    } else {
+      state.snake.pop();
+    }
   }
 
   // ================= 特效 =================
@@ -910,6 +1221,14 @@
     const dt = Math.min(now - lastTime, 100);
     lastTime = now;
 
+    if (state.phase === 'menu' && !reducedMotion) {
+      state.acc += dt;
+      while (state.acc >= state.interval && state.phase === 'menu') {
+        state.acc -= state.interval;
+        demoStep();
+      }
+    }
+
     if (state.phase === 'countdown') {
       const before = Math.ceil(state.countdown / (COUNTDOWN / 3));
       state.countdown -= dt;
@@ -925,7 +1244,6 @@
     if (state.phase === 'playing') {
       state.acc += dt;
       state.elapsed += dt;
-      state.playTime += dt;
       runTimers();
       while (state.acc >= state.interval && state.phase === 'playing') {
         state.acc -= state.interval;
@@ -938,7 +1256,7 @@
     }
 
     updateEffects(dt);
-    const moving = state.phase === 'playing' || state.phase === 'paused' || state.phase === 'countdown';
+    const moving = state.phase !== 'over' && !(state.phase === 'menu' && reducedMotion);
     render(now, moving ? Math.min(1, state.acc / state.interval) : 1);
     requestAnimationFrame(frame);
   }
@@ -962,8 +1280,14 @@
       return;
     }
 
+    // 战报面板里只认 Esc 返回，其余快捷键都让路（包括在文本框里打字）
+    if (overlay.dataset.screen === 'sync') {
+      if (e.code === 'Escape') showScreen(syncReturn);
+      return;
+    }
+
     // 焦点在按钮/单选框上时，Enter/空格交给浏览器原生处理
-    const onControl = e.target instanceof HTMLElement && e.target.matches('button, input');
+    const onControl = e.target instanceof HTMLElement && e.target.matches('button, input, summary');
     const confirmKey = e.code === 'Enter' || e.code === 'Space';
     if (confirmKey && onControl) return;
 
@@ -988,7 +1312,7 @@
       case 'KeyT': {
         // 循环切换主题
         const ids = THEMES.list.map((t) => t.id);
-        setTheme(ids[(ids.indexOf(settings.theme) + 1) % ids.length]);
+        setTheme(ids[(ids.indexOf(settings.themes[settings.player]) + 1) % ids.length]);
         break;
       }
     }
@@ -1022,11 +1346,15 @@
 
   const ACTIONS = {
     start: startGame,
-    restart: startGame,
+    restart: () => requestRestart(true),
     resume,
     menu: toMenu,
     'toggle-pause': togglePause,
     'toggle-sound': toggleSound,
+    'send-report': sendReport,
+    'receive-report': receiveReport,
+    'sync-confirm': syncConfirm,
+    'sync-back': () => showScreen(syncReturn),
   };
 
   document.addEventListener('click', (e) => {
@@ -1049,11 +1377,8 @@
     });
   });
 
-  document.querySelectorAll('input[name="theme"]').forEach((input) => {
-    input.addEventListener('change', () => {
-      setTheme(input.value);
-      input.blur(); // 避免之后的方向键改变选中的主题
-    });
+  document.querySelectorAll('input[name="player"]').forEach((input) => {
+    input.addEventListener('change', () => setPlayer(input.value));
   });
 
   // 切到后台自动暂停

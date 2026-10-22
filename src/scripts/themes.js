@@ -115,20 +115,36 @@ window.SnakeThemes = (() => {
 
   // ================= 霓虹（默认）=================
   const neon = (() => {
+    const CYAN = '#2ef2ff';
+    const PINK = '#ff2a6d';
+    const VIOLET = '#8b5cff';
     const C = {
-      head: hexToRgb('#8af7c6'),
-      tail: hexToRgb('#159069'),
-      deadHead: hexToRgb('#9aa5b1'),
-      deadTail: hexToRgb('#3d4853'),
+      head: hexToRgb(CYAN),
+      tail: hexToRgb('#ff2bd6'),
+      dead: hexToRgb('#4a4766'),
     };
+
+    // 霓虹灯管：宽而淡的光晕叠在细而亮的芯上
+    function glowStroke(ctx, color, width, layers = [[3.2, 0.08], [2, 0.18]]) {
+      layers.forEach(([k, a]) => {
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width * k;
+        ctx.stroke();
+      });
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
 
     return {
       id: 'neon',
       label: '霓虹',
-      themeColor: '#0b0f14',
+      themeColor: '#06050c',
       font: SYSTEM_FONT,
       text: {
-        sub: 'SNAKE',
+        sub: 'NEON SNAKE',
         menuTitle: '准备好了吗？',
         start: '开始游戏',
         paused: '已暂停',
@@ -138,62 +154,86 @@ window.SnakeThemes = (() => {
         level: (n, maze) => `LEVEL ${n} · ${maze ? '新增障碍' : '速度提升'}`,
       },
       colors: {
-        ring: 'rgba(255, 209, 102, 0.55)',
-        countdown: '#e6edf3',
-        flash: '255, 80, 90',
-        float: { food: '#ff6b6b', bonus: '#ffd166' },
+        ring: 'rgba(255, 228, 94, 0.7)',
+        countdown: CYAN,
+        flash: '255, 43, 214',
+        deathRing: 'rgba(255, 43, 214, 0.9)',
+        float: { food: PINK, bonus: '#ffe45e' },
         particles: {
-          eat: ['#ff6b6b', '#ffb3b3', '#5ad17a'],
-          bonus: ['#ffd166', '#fff1c2', '#f0a020'],
-          death: ['#ff6b6b', '#ffffff', '#8af7c6'],
-          rock: ['#5b6f86', '#8ea3ba'],
-          expire: ['#8b98a5', '#5d6b78'],
+          eat: [PINK, '#ff8fb1', '#ffffff'],
+          bonus: ['#ffe45e', '#fff6c2', CYAN],
+          death: [CYAN, '#ff2bd6', '#ffffff', VIOLET],
+          rock: [VIOLET, '#c4b0ff'],
+          expire: ['#5c5880', '#8c88b4'],
         },
       },
-      particleShapes: ['dot'],
+      particleShapes: ['spark', 'dot'],
       gravity: 0,
       shake: 9,
+      rings: true,
 
       buildBackground(g, size, cell) {
-        checker(g, size, cell, '#0f151c', '#121a22');
-        const v = g.createRadialGradient(size / 2, size / 2, size * 0.25, size / 2, size / 2, size * 0.75);
+        g.fillStyle = '#07060f';
+        g.fillRect(0, 0, size, size);
+
+        // 底部一抹品红地平线辉光
+        const horizon = g.createRadialGradient(size / 2, size * 1.15, 0, size / 2, size * 1.15, size * 0.9);
+        horizon.addColorStop(0, 'rgba(255, 43, 214, 0.16)');
+        horizon.addColorStop(1, 'rgba(255, 43, 214, 0)');
+        g.fillStyle = horizon;
+        g.fillRect(0, 0, size, size);
+
+        // 网格线
+        g.strokeStyle = 'rgba(139, 92, 255, 0.11)';
+        g.lineWidth = 1;
+        g.beginPath();
+        for (let i = 1; i < size / cell; i++) {
+          const v = Math.round(i * cell) + 0.5;
+          g.moveTo(v, 0);
+          g.lineTo(v, size);
+          g.moveTo(0, v);
+          g.lineTo(size, v);
+        }
+        g.stroke();
+
+        // 交点亮点
+        g.fillStyle = 'rgba(46, 242, 255, 0.18)';
+        for (let y = 1; y < size / cell; y++) {
+          for (let x = 1; x < size / cell; x++) {
+            g.fillRect(Math.round(x * cell) - 0.5, Math.round(y * cell) - 0.5, 2, 2);
+          }
+        }
+
+        const v = g.createRadialGradient(size / 2, size / 2, size * 0.3, size / 2, size / 2, size * 0.75);
         v.addColorStop(0, 'rgba(0,0,0,0)');
-        v.addColorStop(1, 'rgba(0,0,0,0.35)');
+        v.addColorStop(1, 'rgba(0,0,0,0.45)');
         g.fillStyle = v;
         g.fillRect(0, 0, size, size);
       },
 
       drawWall(ctx, x, y, cell) {
-        const inset = cell * 0.08;
+        const inset = cell * 0.16;
         const s = cell - inset * 2;
-        roundRect(ctx, x + inset, y + inset, s, s, cell * 0.2);
-        ctx.fillStyle = '#263241';
+        roundRect(ctx, x + inset, y + inset, s, s, cell * 0.16);
+        ctx.fillStyle = 'rgba(139, 92, 255, 0.16)';
         ctx.fill();
-        roundRect(ctx, x + inset + s * 0.12, y + inset + s * 0.1, s * 0.76, s * 0.22, cell * 0.08);
-        ctx.fillStyle = '#33445a';
-        ctx.fill();
+        glowStroke(ctx, VIOLET, Math.max(1.5, cell * 0.07), [[3, 0.12], [1.8, 0.25]]);
       },
 
       drawFood(ctx, cx, cy, cell, scale, now) {
-        const r = cell * 0.33 * (1 + Math.sin(now / 230) * 0.06) * scale;
+        const r = cell * 0.26 * (1 + Math.sin(now / 230) * 0.07) * scale;
         if (r <= 0) return;
-        ctx.save();
-        ctx.shadowColor = '#ff6b6b';
-        ctx.shadowBlur = cell * 0.7;
-        const grad = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
-        grad.addColorStop(0, '#ff9a9a');
-        grad.addColorStop(1, '#d93f55');
-        ctx.fillStyle = grad;
+        const halo = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.6);
+        halo.addColorStop(0, 'rgba(255, 42, 109, 0.45)');
+        halo.addColorStop(1, 'rgba(255, 42, 109, 0)');
+        ctx.fillStyle = halo;
+        circle(ctx, cx, cy, r * 2.6);
+        ctx.fill();
         circle(ctx, cx, cy, r);
+        ctx.fillStyle = PINK;
         ctx.fill();
-        ctx.restore();
-
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        circle(ctx, cx - r * 0.35, cy - r * 0.38, r * 0.2);
-        ctx.fill();
-        ctx.fillStyle = '#5ad17a';
-        ctx.beginPath();
-        ctx.ellipse(cx + r * 0.35, cy - r * 0.95, r * 0.36, r * 0.17, -0.6, 0, TAU);
+        ctx.fillStyle = 'rgba(255, 230, 240, 0.9)';
+        circle(ctx, cx, cy, r * 0.45);
         ctx.fill();
       },
 
@@ -203,97 +243,93 @@ window.SnakeThemes = (() => {
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(now / 700);
-        ctx.shadowColor = '#ffd166';
-        ctx.shadowBlur = cell * 0.8;
+        ctx.lineJoin = 'round';
         star(ctx, 0, 0, r);
-        const grad = ctx.createLinearGradient(0, -r, 0, r);
-        grad.addColorStop(0, '#fff1c2');
-        grad.addColorStop(1, '#f0a020');
-        ctx.fillStyle = grad;
+        ctx.fillStyle = 'rgba(255, 228, 94, 0.18)';
         ctx.fill();
+        glowStroke(ctx, '#ffe45e', Math.max(1.5, cell * 0.07));
         ctx.restore();
       },
 
       drawSnake(ctx, s) {
         const { segs, head, cell, px, fade, now, dir, dead } = s;
-        const headColor = mix(C.head, C.deadHead, fade);
-        const tailColor = mix(C.tail, C.deadTail, fade);
+        const headColor = mix(C.head, C.dead, fade);
+        const tailColor = mix(C.tail, C.dead, fade);
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
-        // 外发光：两层半透明宽描边，比 shadowBlur 省得多
+        // 光晕
         if (!dead) {
-          for (const [width, a] of [[1.25, 0.06], [1.0, 0.1]]) {
-            ctx.strokeStyle = `rgba(94, 240, 176, ${a})`;
+          for (const [width, a] of [[1.35, 0.05], [1.05, 0.09]]) {
+            ctx.strokeStyle = `rgba(46, 242, 255, ${a})`;
             ctx.lineWidth = cell * width;
             tracePath(ctx, segs, px);
             ctx.stroke();
           }
         }
 
-        // 渐变身体（从尾到头绘制，头部压在最上层）
-        for (let i = segs.length - 1; i >= 0; i--) {
-          const { a, b, t } = segs[i];
-          ctx.strokeStyle = rgba(mix(headColor, tailColor, t));
-          ctx.lineWidth = cell * (t > 0.7 ? 0.76 - ((t - 0.7) / 0.3) * 0.18 : 0.76);
+        // 青 → 品红的连续灯管：先铺圆形关节补齐拐角和尾端，再用平头线段逐段渐变，
+        // 避免圆头线段互相叠压出一圈圈"鳞片"
+        const w = cell * 0.6;
+        const step = 1 / Math.max(1, segs.length - 1);
+        const color = (t) => rgba(mix(headColor, tailColor, Math.min(1, t)));
+        segs.forEach(({ a, b, t }) => {
+          ctx.fillStyle = color(t + step);
+          circle(ctx, px(b.x), px(b.y), w / 2);
+          ctx.fill();
+        });
+        ctx.lineCap = 'butt';
+        ctx.lineWidth = w;
+        segs.forEach(({ a, b, t }) => {
+          const grad = ctx.createLinearGradient(px(a.x), px(a.y), px(b.x), px(b.y));
+          grad.addColorStop(0, color(t));
+          grad.addColorStop(1, color(t + step));
+          ctx.strokeStyle = grad;
           ctx.beginPath();
           ctx.moveTo(px(a.x), px(a.y));
           ctx.lineTo(px(b.x), px(b.y));
           ctx.stroke();
-        }
-
-        // 高光
-        ctx.strokeStyle = 'rgba(255,255,255,0.13)';
-        ctx.lineWidth = cell * 0.16;
-        ctx.beginPath();
-        segs.forEach(({ a, b }) => {
-          ctx.moveTo(px(a.x) - cell * 0.1, px(a.y) - cell * 0.1);
-          ctx.lineTo(px(b.x) - cell * 0.1, px(b.y) - cell * 0.1);
         });
-        ctx.stroke();
+        ctx.lineCap = 'round';
+
+        // 灯管白芯
+        if (!dead) {
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+          ctx.lineWidth = cell * 0.16;
+          tracePath(ctx, segs, px);
+          ctx.stroke();
+        }
 
         // 头
         const hx = px(head.x);
         const hy = px(head.y);
         const perp = { x: -dir.y, y: dir.x };
-        if (!dead && now % 2600 < 220) {
-          ctx.strokeStyle = '#ff6b6b';
-          ctx.lineWidth = Math.max(1.2, cell * 0.07);
-          const bx = hx + dir.x * cell * 0.4;
-          const by = hy + dir.y * cell * 0.4;
-          const tx = bx + dir.x * cell * 0.25;
-          const ty = by + dir.y * cell * 0.25;
-          ctx.beginPath();
-          ctx.moveTo(bx, by);
-          ctx.lineTo(tx, ty);
-          ctx.lineTo(tx + (dir.x + perp.x) * cell * 0.1, ty + (dir.y + perp.y) * cell * 0.1);
-          ctx.moveTo(tx, ty);
-          ctx.lineTo(tx + (dir.x - perp.x) * cell * 0.1, ty + (dir.y - perp.y) * cell * 0.1);
-          ctx.stroke();
-        }
         ctx.fillStyle = rgba(headColor);
-        circle(ctx, hx, hy, cell * 0.44);
+        circle(ctx, hx, hy, cell * 0.4);
         ctx.fill();
 
         for (const side of [-1, 1]) {
-          const ex = hx + dir.x * cell * 0.12 + perp.x * cell * 0.2 * side;
-          const ey = hy + dir.y * cell * 0.12 + perp.y * cell * 0.2 * side;
+          const ex = hx + dir.x * cell * 0.1 + perp.x * cell * 0.17 * side;
+          const ey = hy + dir.y * cell * 0.1 + perp.y * cell * 0.17 * side;
+          ctx.strokeStyle = '#06050c';
+          ctx.fillStyle = '#06050c';
           if (dead) {
-            const k = cell * 0.09;
-            ctx.strokeStyle = '#0b0f14';
-            ctx.lineWidth = Math.max(1.5, cell * 0.07);
+            const k = cell * 0.08;
+            ctx.lineWidth = Math.max(1.5, cell * 0.06);
             ctx.beginPath();
             ctx.moveTo(ex - k, ey - k);
             ctx.lineTo(ex + k, ey + k);
             ctx.moveTo(ex + k, ey - k);
             ctx.lineTo(ex - k, ey + k);
             ctx.stroke();
+          } else if (now % 3000 < 120) {
+            ctx.lineWidth = Math.max(1.5, cell * 0.06);
+            ctx.beginPath();
+            ctx.moveTo(ex - perp.x * cell * 0.07, ey - perp.y * cell * 0.07);
+            ctx.lineTo(ex + perp.x * cell * 0.07, ey + perp.y * cell * 0.07);
+            ctx.stroke();
           } else {
-            ctx.fillStyle = '#ffffff';
-            circle(ctx, ex, ey, cell * 0.12);
-            ctx.fill();
-            ctx.fillStyle = '#0b0f14';
-            circle(ctx, ex + dir.x * cell * 0.04, ey + dir.y * cell * 0.04, cell * 0.065);
+            circle(ctx, ex, ey, cell * 0.075);
             ctx.fill();
           }
         }
@@ -766,16 +802,18 @@ window.SnakeThemes = (() => {
           [0, -0.1, 0.26],
           [0.22, 0.04, 0.2],
         ];
-        const cloud = (dy, color) => {
+        const cloud = (dy, color, grow = 0) => {
           ctx.fillStyle = color;
-          roundRect(ctx, cx - cell * 0.4, cy + dy - cell * 0.02, cell * 0.8, cell * 0.25, cell * 0.12);
+          roundRect(ctx, cx - cell * 0.4 - grow, cy + dy - cell * 0.02 - grow, cell * 0.8 + grow * 2, cell * 0.25 + grow * 2, cell * 0.12 + grow);
           ctx.fill();
           puffs.forEach(([dx, py, r]) => {
-            circle(ctx, cx + dx * cell, cy + py * cell + dy, r * cell);
+            circle(ctx, cx + dx * cell, cy + py * cell + dy, r * cell + grow);
             ctx.fill();
           });
         };
-        cloud(cell * 0.07, '#e6d8ff'); // 淡紫色投影
+        // 浅色棋盘上要一眼看见：投影 + 淡紫描边 + 白色云身
+        cloud(cell * 0.09, '#d2bdfb');
+        cloud(0, '#b99cf0', Math.max(1, cell * 0.035));
         cloud(0, '#ffffff');
       },
 
