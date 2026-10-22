@@ -7,12 +7,14 @@
   const FOODS_PER_LEVEL = 5;     // 每吃 5 个食物升一级
   const BONUS_LIFETIME = 6000;   // 金色奖励存在时间（毫秒，游戏时间）
   const MAX_QUEUE = 3;           // 方向输入缓冲，快速连按不丢键
+  const COUNTDOWN = 1500;        // 开局/继续前的 3-2-1 倒计时
+  const RESTART_CONFIRM = 1500;  // 游戏中连按两次 R 才重开
 
   // start/min：每步间隔（毫秒），step：每吃一个食物加速多少，mult：得分倍率
   const DIFFICULTIES = {
-    easy:   { start: 165, min: 90, step: 4, mult: 1 },
-    normal: { start: 125, min: 65, step: 3, mult: 2 },
-    hard:   { start: 92,  min: 48, step: 2, mult: 3 },
+    easy:   { start: 170, min: 105, step: 3,   mult: 1 },
+    normal: { start: 140, min: 80,  step: 2.5, mult: 2 },
+    hard:   { start: 110, min: 62,  step: 2,   mult: 3 },
   };
 
   const MODE_HINTS = {
@@ -35,7 +37,6 @@
     tail: '#159069',
     deadHead: '#9aa5b1',
     deadTail: '#3d4853',
-    glow: 'rgba(94, 240, 176, 0.45)',
     food: '#ff6b6b',
     foodDark: '#d93f55',
     leaf: '#5ad17a',
@@ -145,6 +146,7 @@
       },
       win: () => arpeggio([523, 659, 784, 1047, 1319, 1568], 0.09, { type: 'triangle' }),
       click: () => tone(660, 0.05, { type: 'triangle', vol: 0.05 }),
+      tick: () => tone(440, 0.08, { type: 'triangle', vol: 0.08 }),
     };
   })();
 
@@ -163,7 +165,7 @@
     const cy = Math.floor(ROWS / 2);
     const snake = [{ x: 6, y: cy }, { x: 5, y: cy }, { x: 4, y: cy }];
     const s = {
-      phase: 'menu',             // menu | playing | paused | over
+      phase: 'menu',             // menu | countdown | playing | paused | over
       snake,
       prev: snake.slice(),       // 上一步的蛇，用于平滑插值
       dir: DIRS.right,
@@ -176,7 +178,12 @@
       level: 1,
       interval: DIFFICULTIES[settings.difficulty].start,
       acc: 0,
-      elapsed: 0,
+      elapsed: 0,                // 游戏时间（毫秒），驱动定时器与奖励倒计时
+      playTime: 0,
+      countdown: 0,
+      grace: false,              // 即将撞上时多给一拍转向机会
+      timers: [],                // 按游戏时间延后执行的回调（暂停时冻结）
+      swallow: null,             // 正在被吞下的食物，用于收缩动画
       dead: false,
       deathAt: 0,
       won: false,
@@ -240,10 +247,17 @@
     const body = eatsFood ? state.snake : state.snake.slice(0, -1);
     const outside = x < 0 || x >= COLS || y < 0 || y >= ROWS;
     if (outside || state.walls.has(key(next)) || body.some((p) => same(p, next))) {
+      // 第一次撞上时停顿一拍，玩家还来得及转向；仍不转向才判死
+      if (!state.grace) {
+        state.grace = true;
+        state.prev = state.snake.slice();
+        return;
+      }
       die();
       return;
     }
 
+    state.grace = false;
     state.prev = state.snake.slice();
     state.snake.unshift(next);
     if (!eatsFood) state.snake.pop();
@@ -257,16 +271,23 @@
     const diff = DIFFICULTIES[settings.difficulty];
     const at = state.food;
     state.foods++;
-    addScore((10 + (state.level - 1) * 2) * diff.mult, at, COLORS.food);
-    burst(at, [COLORS.food, '#ffb3b3', COLORS.leaf], 14);
-    Sound.eat();
-
     state.interval = Math.max(diff.min, diff.start - state.foods * diff.step);
+
+    // 逻辑先行一格，画面上蛇头此刻才刚出发，等它“咬到”再播放特效
+    const delay = state.interval * 0.85;
+    state.swallow = { x: at.x, y: at.y, start: state.elapsed, dur: delay };
+    const points = (10 + (state.level - 1) * 2) * diff.mult;
+    state.score += points;
+    later(delay, () => {
+      showScore(points, at, COLORS.food);
+      burst(at, [COLORS.food, '#ffb3b3', COLORS.leaf], 14);
+      Sound.eat();
+    });
 
     const level = 1 + Math.floor(state.foods / FOODS_PER_LEVEL);
     if (level > state.level) {
       state.level = level;
-      levelUp();
+      later(delay, levelUp);
     }
 
     state.food = null;
@@ -281,17 +302,28 @@
     }
 
     if (!state.bonus && state.foods >= 3 && Math.random() < 0.3) {
-      state.bonus = spawnItem();
+      // 生成在 6 秒内追得到的范围里
+      const head = state.snake[0];
+      const near = (x, y) => {
+        const d = gridDistance(head, { x, y });
+        return d >= 3 && d <= 12;
+      };
+      state.bonus = spawnItem(near) || spawnItem();
       if (state.bonus) state.bonus.born = state.elapsed;
     }
   }
 
   function eatBonus() {
     const at = state.bonus;
-    addScore(50 * DIFFICULTIES[settings.difficulty].mult, at, COLORS.gold);
-    burst(at, [COLORS.gold, '#fff1c2', COLORS.goldDark], 24);
-    Sound.bonus();
+    const points = 50 * DIFFICULTIES[settings.difficulty].mult;
+    state.score += points;
     state.bonus = null;
+    state.swallow = { x: at.x, y: at.y, start: state.elapsed, dur: state.interval * 0.85, bonus: true };
+    later(state.interval * 0.85, () => {
+      showScore(points, at, COLORS.gold);
+      burst(at, [COLORS.gold, '#fff1c2', COLORS.goldDark], 24);
+      Sound.bonus();
+    });
   }
 
   function levelUp() {
@@ -310,14 +342,42 @@
     }
   }
 
-  function addScore(points, at, color) {
-    state.score += points;
-    floats.push({ x: at.x + 0.5, y: at.y + 0.2, text: `+${points}`, color, life: 0, max: 900 });
+  function later(ms, fn) {
+    state.timers.push({ at: state.elapsed + ms, fn });
+  }
+
+  function runTimers() {
+    const due = state.timers.filter((t) => state.elapsed >= t.at);
+    if (!due.length) return;
+    state.timers = state.timers.filter((t) => state.elapsed < t.at);
+    due.forEach((t) => t.fn());
+  }
+
+  // 回合结束时立即播放尚未触发的吃食物特效
+  function flushTimers() {
+    const pending = state.timers;
+    state.timers = [];
+    pending.forEach((t) => t.fn());
+  }
+
+  function gridDistance(a, b) {
+    let dx = Math.abs(a.x - b.x);
+    let dy = Math.abs(a.y - b.y);
+    if (settings.mode === 'wrap') {
+      dx = Math.min(dx, COLS - dx);
+      dy = Math.min(dy, ROWS - dy);
+    }
+    return dx + dy;
+  }
+
+  function showScore(points, at, color) {
+    // 靠边时向内收，避免飘字被裁掉
+    floats.push({ x: Math.min(COLS - 1, Math.max(1, at.x + 0.5)), y: Math.max(0.8, at.y + 0.2), text: `+${points}`, color, life: 0, max: 900 });
     bump(hud.score);
   }
 
   function queueDir(name) {
-    if (state.phase !== 'playing') return;
+    if (state.phase !== 'playing' && state.phase !== 'countdown') return;
     const d = DIRS[name];
     const last = state.queue.length ? state.queue[state.queue.length - 1] : state.dir;
     if (d === last || (d.x === -last.x && d.y === -last.y)) return;
@@ -325,6 +385,7 @@
   }
 
   function die() {
+    flushTimers();
     state.phase = 'over';
     state.dead = true;
     state.deathAt = performance.now();
@@ -337,6 +398,7 @@
   }
 
   function win() {
+    flushTimers();
     state.phase = 'over';
     state.won = true;
     state.prev = state.snake.slice();
@@ -357,7 +419,7 @@
     $('#overBest').textContent = Math.max(best, state.score);
     $('#overLength').textContent = state.snake.length;
     $('#overLevel').textContent = state.level;
-    $('#overTime').textContent = formatTime(state.elapsed);
+    $('#overTime').textContent = formatTime(state.playTime);
     updatePauseButton();
 
     const token = ++roundToken;
@@ -371,19 +433,26 @@
     Sound.unlock();
     roundToken++;
     newState();
-    state.phase = 'playing';
     particles.length = 0;
     floats.length = 0;
     shake = 0;
     flash = 0;
     showScreen('');
+    beginCountdown();
     updateHud();
+  }
+
+  const isActive = () => state.phase === 'playing' || state.phase === 'countdown';
+
+  function beginCountdown() {
+    state.phase = 'countdown';
+    state.countdown = COUNTDOWN;
+    Sound.tick();
     updatePauseButton();
-    Sound.start();
   }
 
   function pause() {
-    if (state.phase !== 'playing') return;
+    if (!isActive()) return;
     state.phase = 'paused';
     showScreen('paused');
     updatePauseButton();
@@ -391,14 +460,29 @@
 
   function resume() {
     if (state.phase !== 'paused') return;
-    state.phase = 'playing';
     showScreen('');
-    updatePauseButton();
+    beginCountdown();
   }
 
   function togglePause() {
-    if (state.phase === 'playing') pause();
+    if (isActive()) pause();
     else if (state.phase === 'paused') resume();
+  }
+
+  let restartArmedAt = -Infinity;
+  function requestRestart() {
+    if (!isActive()) {
+      startGame();
+      return;
+    }
+    const now = performance.now();
+    if (now - restartArmedAt < RESTART_CONFIRM) {
+      restartArmedAt = -Infinity;
+      startGame();
+    } else {
+      restartArmedAt = now;
+      toast('再按一次 R 重新开始');
+    }
   }
 
   function toMenu() {
@@ -443,7 +527,7 @@
     const paused = state.phase === 'paused';
     pauseBtn.classList.toggle('is-paused', paused);
     pauseBtn.setAttribute('aria-label', paused ? '继续' : '暂停');
-    pauseBtn.disabled = state.phase !== 'playing' && !paused;
+    pauseBtn.disabled = !isActive() && !paused;
   }
 
   function updateSoundButton() {
@@ -569,10 +653,12 @@
     drawWalls();
     if (state.food) drawFood(state.food, now);
     if (state.bonus) drawBonus(state.bonus, now);
+    drawSwallow(now);
     drawSnake(alpha, now);
     drawParticles();
     drawFloats();
     ctx.restore();
+    if (state.phase === 'countdown') drawCountdown();
     if (flash > 0) {
       ctx.fillStyle = `rgba(255, 80, 90, ${flash * 0.22})`;
       ctx.fillRect(0, 0, size, size);
@@ -607,10 +693,24 @@
   const easeOutBack = (t) => 1 + 2.7 * Math.pow(t - 1, 3) + 1.7 * Math.pow(t - 1, 2);
   const spawnScale = (item, now) => easeOutBack(Math.min(1, (now - item.bornAt) / 280));
 
-  function drawFood(food, now) {
+  // 被吃掉的食物在蛇头到达前逐渐缩小
+  function drawSwallow(now) {
+    const sw = state.swallow;
+    if (!sw) return;
+    const p = (state.elapsed - sw.start) / sw.dur;
+    if (p >= 1 || state.dead) {
+      state.swallow = null;
+      return;
+    }
+    const scale = 1 - p * p;
+    if (sw.bonus) drawBonus({ ...sw, born: state.elapsed, swallowed: true }, now, scale);
+    else drawFood(sw, now, scale);
+  }
+
+  function drawFood(food, now, scale = spawnScale(food, now)) {
     const cx = (food.x + 0.5) * cell;
     const cy = (food.y + 0.5) * cell;
-    const r = cell * 0.33 * (1 + Math.sin(now / 230) * 0.06) * spawnScale(food, now);
+    const r = cell * 0.33 * (1 + Math.sin(now / 230) * 0.06) * scale;
     if (r <= 0) return;
 
     ctx.save();
@@ -636,12 +736,12 @@
     ctx.fill();
   }
 
-  function drawBonus(bonus, now) {
+  function drawBonus(bonus, now, scale = spawnScale(bonus, now)) {
     const remain = 1 - (state.elapsed - bonus.born) / BONUS_LIFETIME;
     if (remain < 0.25 && Math.floor(now / 120) % 2) return; // 即将消失时闪烁
     const cx = (bonus.x + 0.5) * cell;
     const cy = (bonus.y + 0.5) * cell;
-    const r = cell * 0.4 * spawnScale(bonus, now);
+    const r = cell * 0.4 * scale;
     if (r <= 0) return;
 
     ctx.save();
@@ -662,6 +762,7 @@
     ctx.fillStyle = grad;
     ctx.fill();
     ctx.restore();
+    if (bonus.swallowed) return; // 被吞下时不画计时环
 
     // 剩余时间圆环
     ctx.strokeStyle = 'rgba(255, 209, 102, 0.55)';
@@ -733,6 +834,11 @@
 
   function drawSnake(alpha, now) {
     const { head, segs } = snakeSegments(alpha);
+    if (state.dead) {
+      const lunge = Math.min(1, (now - state.deathAt) / 90) * 0.3;
+      head.x += state.dir.x * lunge;
+      head.y += state.dir.y * lunge;
+    }
     const px = (v) => (v + 0.5) * cell;
 
     // 死亡后逐渐褪色
@@ -743,19 +849,19 @@
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 外发光
-    ctx.save();
-    ctx.shadowColor = state.dead ? 'rgba(0,0,0,0)' : COLORS.glow;
-    ctx.shadowBlur = cell * 0.6;
-    ctx.strokeStyle = rgb(tailColor);
-    ctx.lineWidth = cell * 0.62;
-    ctx.beginPath();
-    segs.forEach(({ a, b }) => {
-      ctx.moveTo(px(a.x), px(a.y));
-      ctx.lineTo(px(b.x), px(b.y));
-    });
-    ctx.stroke();
-    ctx.restore();
+    // 外发光：两层半透明宽描边，比 shadowBlur 省得多
+    if (!state.dead) {
+      for (const [width, alphaGlow] of [[1.25, 0.06], [1.0, 0.1]]) {
+        ctx.strokeStyle = `rgba(94, 240, 176, ${alphaGlow})`;
+        ctx.lineWidth = cell * width;
+        ctx.beginPath();
+        segs.forEach(({ a, b }) => {
+          ctx.moveTo(px(a.x), px(a.y));
+          ctx.lineTo(px(b.x), px(b.y));
+        });
+        ctx.stroke();
+      }
+    }
 
     // 渐变身体（从尾到头绘制，头部压在最上层）
     for (let i = segs.length - 1; i >= 0; i--) {
@@ -833,6 +939,22 @@
     }
   }
 
+  function drawCountdown() {
+    const unit = COUNTDOWN / 3;
+    const n = Math.ceil(state.countdown / unit);
+    const p = 1 - (state.countdown - (n - 1) * unit) / unit; // 当前数字的进度 0→1
+    ctx.save();
+    ctx.globalAlpha = 1 - p * 0.7;
+    ctx.fillStyle = '#e6edf3';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `800 ${Math.round(cell * (4 - p * 1.2))}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 20;
+    ctx.fillText(String(n), size / 2, size / 2);
+    ctx.restore();
+  }
+
   function drawParticles() {
     particles.forEach((p) => {
       ctx.globalAlpha = 1 - p.life / p.max;
@@ -863,9 +985,23 @@
     const dt = Math.min(now - lastTime, 100);
     lastTime = now;
 
+    if (state.phase === 'countdown') {
+      const before = Math.ceil(state.countdown / (COUNTDOWN / 3));
+      state.countdown -= dt;
+      const after = Math.ceil(state.countdown / (COUNTDOWN / 3));
+      if (state.countdown <= 0) {
+        state.phase = 'playing';
+        Sound.start();
+      } else if (after !== before) {
+        Sound.tick();
+      }
+    }
+
     if (state.phase === 'playing') {
       state.acc += dt;
       state.elapsed += dt;
+      state.playTime += dt;
+      runTimers();
       while (state.acc >= state.interval && state.phase === 'playing') {
         state.acc -= state.interval;
         step();
@@ -877,7 +1013,7 @@
     }
 
     updateEffects(dt);
-    const moving = state.phase === 'playing' || state.phase === 'paused';
+    const moving = state.phase === 'playing' || state.phase === 'paused' || state.phase === 'countdown';
     render(now, moving ? Math.min(1, state.acc / state.interval) : 1);
     requestAnimationFrame(frame);
   }
@@ -894,7 +1030,7 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const dir = KEY_DIRS[e.code];
     if (dir) {
-      if (state.phase === 'playing') {
+      if (isActive()) {
         e.preventDefault();
         queueDir(dir);
       }
@@ -911,7 +1047,7 @@
       case 'KeyP':
       case 'Escape':
         e.preventDefault();
-        if (state.phase === 'playing' || state.phase === 'paused') togglePause();
+        if (isActive() || state.phase === 'paused') togglePause();
         else if (e.code === 'Space') startGame();
         break;
       case 'Enter':
@@ -919,7 +1055,7 @@
         else if (state.phase === 'paused') resume();
         break;
       case 'KeyR':
-        startGame();
+        requestRestart();
         break;
       case 'KeyM':
         toggleSound();
